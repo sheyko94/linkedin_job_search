@@ -1,0 +1,22 @@
+# Environment
+.env
+
+# UV / Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.python-version
+
+# Build
+dist/
+*.egg-info/
+
+# Tests
+.pytest_cache/
+.coverage
+
+# Editors
+.DS_Store
+
+
