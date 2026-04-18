@@ -2,27 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+See [README.md](README.md) for a full description of the project, architecture diagram, and configuration reference.
+
 ## Infrastructure
 
 OpenSearch runs locally via Docker Compose (`docker-compose.yml` at project root).
 
-Start:
-
 ```bash
-docker compose up -d
-```
-
-Stop and remove containers:
-
-```bash
-docker compose down
+docker compose up -d   # start
+docker compose down    # stop and remove containers
 ```
 
 | Service | URL |
 | --- | --- |
 | OpenSearch API | `http://localhost:9200` |
-
-The retrieval layer (`retrieval/search_client.py`) connects to OpenSearch at `:9200` and runs a BM25 `match` query against the `docs` index.
 
 ## Commands
 
@@ -36,37 +29,23 @@ uv run ruff check .                              # lint
 uv run ruff format .                             # format
 ```
 
-## Architecture
+## Agent rules
 
-See [docs/architecture.md](docs/architecture.md) for a sequence diagram of the full flow.
+Each agent has a strict scope it must never cross:
 
-Two-agent pipeline orchestrated by the coordinator:
+- **Orchestrator** (`agents/coordinator.py`) — calls tools only. Never retrieves or synthesises directly.
+- **Research Agent** (`agents/research.py`) — searches only. Never answers or draws conclusions.
+- **Answer Agent** (`agents/answer.py`) — synthesises only. Never retrieves or invents beyond the provided chunks.
 
-```text
-main.py → app/coordinator.py → agents/retriever.py (Research Agent) → retrieval/search_client.py → OpenSearch
-                              → agents/executor.py  (Answer Agent)   → llm/client.py
-```
+## Key files
 
-**Contracts** (`app/models.py`) are the backbone — every agent boundary uses a strict Pydantic model. `UserTask` in, `OrchestratedResult` out. Never pass free text between agents.
-
-**Research Agent** (`agents/retriever.py`) uses Claude's tool-use API with a `search` tool. Claude decides how many times to search and with what queries. Returns `RetrievalResult` — it must never answer or draw conclusions.
-
-**Answer Agent** (`agents/executor.py`) receives the query + retrieved chunks and calls Claude to produce a grounded `ExecutionResult` (answer, citations, confidence, missing_information). It must never retrieve data or invent information not in the chunks.
-
-**LLM layer** (`llm/`): `client.py` exposes `complete` (single call) and `run_agent` (tool-use loop). `prompts.py` owns all system prompts. `parser.py` extracts JSON from the LLM response.
-
-**Retrieval** (`retrieval/search_client.py`): connects to OpenSearch and runs a BM25 `match` query.
-
-**Observability** (`observability/logging.py`): structlog configured for JSON output to stderr. Call `configure()` once at startup (done in `main.py`). All modules use `get_logger(__name__)`.
-
-## Configuration
-
-Via `.env` (copy from `.env.example`):
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `ANTHROPIC_API_KEY` | required | |
-| `MODEL` | `claude-sonnet-4-6` | |
-| `RETRIEVAL_TOP_K` | `5` | |
-| `OPENSEARCH_URL` | `http://localhost:9200` | |
-| `OPENSEARCH_INDEX` | `docs` | |
+| File | Purpose |
+| --- | --- |
+| `agents/coordinator.py` | Orchestrator Agent — LLM with `run_research` + `generate_answer` tools |
+| `agents/research.py` | Research Agent — LLM with `search` tool |
+| `agents/answer.py` | Answer Agent — single LLM call, JSON output |
+| `agents/models.py` | `AnswerResult`, `QueryResult` |
+| `mcp/client.py` | Tool registry — `list_orchestrator_tools`, `list_research_tools` |
+| `llm/client.py` | Anthropic API wrapper — `complete`, `complete_with_tools` |
+| `opensearch/client.py` | BM25 search client |
+| `config/settings.py` | All configuration |

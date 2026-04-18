@@ -2,7 +2,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from agents.models import OrchestratedResult
+from agents.models import QueryResult
 
 console = Console()
 
@@ -15,7 +15,7 @@ def _confidence_color(c: float) -> str:
     return "red"
 
 
-def display(result: OrchestratedResult) -> None:
+def display(result: QueryResult) -> None:
     table = Table(title="Retrieved Evidence", show_lines=True, border_style="dim")
     table.add_column("Chunk ID", style="cyan", no_wrap=True)
     table.add_column("Score", style="magenta", justify="right")

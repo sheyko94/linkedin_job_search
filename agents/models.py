@@ -1,13 +1,9 @@
 from pydantic import BaseModel
 
-from search.models import RetrievalResult
+from opensearch.models import RetrievalResult
 
 
-class UserTask(BaseModel):
-    query: str
-
-
-class ExecutionResult(BaseModel):
+class AnswerResult(BaseModel):
     answer: str
     citations: list[str]
     confidence: float
@@ -15,8 +11,8 @@ class ExecutionResult(BaseModel):
     notes: str | None = None
 
 
-class OrchestratedResult(BaseModel):
+class QueryResult(BaseModel):
     query: str
     retrieval: RetrievalResult
-    execution: ExecutionResult
+    execution: AnswerResult
     total_latency_ms: int

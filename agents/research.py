@@ -1,18 +1,31 @@
 """Research agent — drives MCP tool calls, never answers."""
 
 from config.settings import settings
-from agents.models import UserTask
-from search.models import RetrievedChunk, RetrievalResult
+from opensearch.models import RetrievedChunk, RetrievalResult
 from llm import client as llm
-from llm.prompts import RESEARCH_AGENT_SYSTEM
 from mcp.client import MCPClient
 from config.logging import get_logger
-from search.client import search
+from opensearch.client import search
 
 logger = get_logger(__name__)
 
+_SYSTEM = """\
+You are a research agent. Your only job is to gather evidence from the knowledge base \
+to answer a user query. Call the search tool as many times as needed with different \
+queries to collect enough evidence. When you have sufficient evidence, write a brief \
+summary of what you found. Never answer the user's question directly — only report \
+what the evidence says.\
+"""
 
-def run(task: UserTask) -> RetrievalResult:
+
+def _user_prompt(query: str, gaps: str | None = None) -> str:
+    msg = query
+    if gaps:
+        msg += f"\n\nA previous answer attempt identified these gaps — search specifically for this missing information:\n{gaps}"
+    return msg
+
+
+def run(query: str, gaps: str | None = None) -> RetrievalResult:
     mcp = MCPClient()
     chunks: list[RetrievedChunk] = []
     seen: set[str] = set()
@@ -26,11 +39,13 @@ def run(task: UserTask) -> RetrievalResult:
         logger.info("research_agent_search", query=input["query"], results=len(results))
         return "\n\n".join(f"[{c.chunk_id}] {c.text}" for c in results)
 
-    llm.run_agent(
-        system=RESEARCH_AGENT_SYSTEM,
-        user=task.query,
-        tools=mcp.list_tools(),
+    llm.complete_with_tools(
+        system=_SYSTEM,
+        user=_user_prompt(query, gaps),
+        model=settings.research_model,
+        tools=mcp.list_research_tools(),
         on_tool_call=on_tool_call,
+        max_iterations=settings.max_search_iterations,
     )
 
     logger.info("research_agent_complete", total_chunks=len(chunks))

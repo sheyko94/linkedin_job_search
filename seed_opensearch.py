@@ -9,7 +9,7 @@ Requires OpenSearch running at OPENSEARCH_URL (default: http://localhost:9200).
 import sys
 
 from opensearchpy import OpenSearch, helpers
-from search.models import RetrievedChunk
+from opensearch.models import RetrievedChunk
 from config.settings import settings
 
 INDEX = settings.opensearch_index
