@@ -18,11 +18,12 @@ sequenceDiagram
     participant Orchestrator as Orchestrator Agent
     participant Research as Research Agent
     participant OpenSearch
+    participant Reranker
     participant Answer as Answer Agent
 
     User->>Orchestrator: query
 
-    loop Orchestrator tool-use loop (Claude decides)
+    loop Orchestrator tool-use loop (Claude decides when to stop)
         Orchestrator->>Research: tool_use: run_research(gaps?)
 
         loop Research tool-use loop (Claude decides)
@@ -30,18 +31,42 @@ sequenceDiagram
             OpenSearch-->>Research: chunks
         end
 
-        Research-->>Orchestrator: RetrievalResult (accumulated chunks)
+        Research-->>Orchestrator: accumulated chunks
 
         Orchestrator->>Answer: tool_use: generate_answer()
-        Answer->>Answer: LLM call — query + evidence chunks
-        Answer-->>Orchestrator: AnswerResult (answer, citations, confidence)
-
-        alt confident and complete
-            Orchestrator-->>User: QueryResult
-        else missing information or low confidence
-            Orchestrator->>Research: tool_use: run_research(gaps)
-        end
+        Orchestrator->>Reranker: rerank(chunks) [if enabled]
+        Reranker-->>Orchestrator: top-K chunks
+        Answer->>Answer: LLM call — query + top-K chunks
+        Answer-->>Orchestrator: confidence, missing_information
     end
+
+    Orchestrator-->>User: QueryResult
+```
+
+```mermaid
+flowchart LR
+    User([User]) -->|query| Orch
+
+    Orch["Orchestrator Agent<br/>(LLM tool-use loop)"]
+    Orch -->|"run_research(gaps?)"| ResAgent
+
+    subgraph ResAgent["Research Agent"]
+        Res["LLM tool-use loop"] -->|search query| OS[(OpenSearch<br/>BM25)]
+        OS -->|chunks| Res
+    end
+
+    ResAgent -->|accumulated chunks| Reranker["Reranker<br/>(cross-encoder, optional)"]
+    Reranker -->|top-K chunks| AnsAgent
+
+    subgraph AnsAgent["Answer Agent"]
+        Ans["Single LLM call"]
+    end
+
+    AnsAgent -->|AnswerResult| Dec{"Confident<br/>and complete?"}
+    Dec -->|yes| Result([QueryResult])
+    Result --> User
+    Dec -->|"no — attempts left"| Orch
+    Dec -->|"max attempts reached"| Result
 ```
 
 ## Project structure
@@ -54,21 +79,22 @@ agents/
   models.py        — Shared Pydantic models (AnswerResult, QueryResult)
 
 llm/
-  client.py        — Anthropic API wrapper (complete, complete_with_tools)
+  client.py        — Anthropic API wrapper (complete, complete_with_tools); token accounting + latency logging
 
 mcp/
   client.py        — Tool registry (list_orchestrator_tools, list_research_tools)
 
 opensearch/
-  client.py        — BM25 search client
+  client.py        — BM25 search client with configurable timeout
   models.py        — RetrievedChunk, RetrievalResult
+  reranker.py      — Cross-encoder reranking via sentence-transformers
 
 config/
   settings.py      — Typed config via pydantic-settings
-  logging.py       — structlog JSON output
+  logging.py       — structlog JSON output with distributed trace ID support
   display.py       — Rich terminal rendering
 
-main.py            — CLI entry point
+main.py            — CLI entry point (input validation)
 seed_opensearch.py — Seeds OpenSearch with the mock corpus
 ```
 
@@ -118,12 +144,20 @@ uv run python main.py "your query here"
 | Variable | Default | Description |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | required | Anthropic API key |
-| `MODEL` | `claude-sonnet-4-6` | Claude model to use |
-| `RETRIEVAL_TOP_K` | `5` | Number of chunks returned per search |
+| `ORCHESTRATOR_MODEL` | `claude-sonnet-4-6` | Model for the orchestrator agent |
+| `RESEARCH_MODEL` | `claude-haiku-4-5-20251001` | Model for the research agent |
+| `ANSWER_MODEL` | `claude-haiku-4-5-20251001` | Model for the answer agent |
+| `RETRIEVAL_TOP_K` | `5` | Number of chunks returned per BM25 search |
 | `OPENSEARCH_URL` | `http://localhost:9200` | OpenSearch endpoint |
 | `OPENSEARCH_INDEX` | `docs` | Index name |
+| `OPENSEARCH_TIMEOUT` | `2.0` | Per-request timeout in seconds for OpenSearch queries |
 | `MAX_ATTEMPTS` | `3` | Max answer attempts before the orchestrator stops |
 | `MAX_SEARCH_ITERATIONS` | `10` | Max tool-use iterations for the research agent |
+| `ORCHESTRATOR_TIMEOUT` | `60.0` | Wall-clock timeout in seconds for the full orchestrator run |
+| `RERANKER_ENABLED` | `true` | Enable cross-encoder reranking before answer generation |
+| `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Sentence-transformers cross-encoder model |
+| `RERANKER_TOP_K` | `3` | Number of top chunks passed to the answer agent after reranking |
+| `MAX_QUERY_LENGTH` | `2000` | Maximum allowed query length in characters |
 
 ## Development
 

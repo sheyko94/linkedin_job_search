@@ -47,5 +47,6 @@ Each agent has a strict scope it must never cross:
 | `agents/models.py` | `AnswerResult`, `QueryResult` |
 | `mcp/client.py` | Tool registry — `list_orchestrator_tools`, `list_research_tools` |
 | `llm/client.py` | Anthropic API wrapper — `complete`, `complete_with_tools` |
-| `opensearch/client.py` | BM25 search client |
+| `opensearch/client.py` | BM25 search client with configurable timeout |
+| `opensearch/reranker.py` | Cross-encoder reranking via sentence-transformers |
 | `config/settings.py` | All configuration |
