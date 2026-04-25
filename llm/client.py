@@ -1,3 +1,4 @@
+import json
 import time
 from typing import Callable
 
@@ -10,6 +11,15 @@ from config.settings import settings
 logger = get_logger(__name__)
 
 _client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+
+def extract_json(raw: str) -> list[dict]:
+    """Strip optional markdown code fences and parse a JSON array from an LLM response."""
+    text = raw.strip()
+    if "```" in text:
+        parts = text.split("```")
+        text = parts[1].split("\n", 1)[-1] if "\n" in parts[1] else parts[1]
+    return json.loads(text.strip())
 
 
 def complete(system: str, user: str, model: str, max_tokens: int = 1024) -> str:
@@ -65,8 +75,8 @@ def complete_with_tools(
                 latency_ms=int((time.monotonic() - start) * 1000),
             )
             return next(
-                b.text for b in response.content
-                if isinstance(b, anthropic.types.TextBlock)
+                block.text for block in response.content
+                if isinstance(block, anthropic.types.TextBlock)
             )
 
         tool_results = [
@@ -78,6 +88,9 @@ def complete_with_tools(
             for block in response.content
             if isinstance(block, anthropic.types.ToolUseBlock)
         ]
+        if not tool_results:
+            break
         messages.append({"role": "user", "content": tool_results})  # type: ignore[list-item]
 
-    raise RuntimeError(f"Agent exceeded max_iterations ({max_iterations}) without reaching end_turn")
+    logger.warning("llm_max_iterations_reached", model=model, max_iterations=max_iterations)
+    return ""

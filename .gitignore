@@ -19,4 +19,11 @@ dist/
 # Editors
 .DS_Store
 
+.playwright-mcp
 
+# State directory — auto-generated, never commit
+.state/
+
+# Generated outputs (optional — remove these lines to track job results in git)
+output/matched_jobs.md
+output/skills_gap.md

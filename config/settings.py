@@ -4,21 +4,35 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
-    anthropic_api_key: str = ""
-    orchestrator_model: str = "claude-sonnet-4-6"
-    research_model: str = "claude-haiku-4-5-20251001"
-    answer_model: str = "claude-haiku-4-5-20251001"
-    retrieval_top_k: int = 5
-    opensearch_url: str = "http://localhost:9200"
-    opensearch_index: str = "docs"
-    opensearch_timeout: float = 2.0
-    max_attempts: int = 3
-    max_search_iterations: int = 10
-    orchestrator_timeout: float = 60.0
-    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-    reranker_top_k: int = 3
-    reranker_enabled: bool = True
-    max_query_length: int = 2000
+    anthropic_api_key: str
+    orchestrator_model: str
+    search_model: str
+    matcher_model: str
+    skills_gap_model: str
+
+    # Browser
+    browser_headless: bool
+    browser_slow_mo: int
+    linkedin_email: str = ""
+    linkedin_password: str = ""
+
+    # Scraping
+    max_jobs_per_search: int
+    max_total_jobs: int
+    matcher_batch_size: int
+    job_detail_delay_ms: int
+
+    # Pipeline
+    max_refinement_iterations: int
+    orchestrator_timeout: float
+
+    # File paths (internal — not exposed in .env)
+    profile_path: str = "profiles/profile.md"
+    search_criteria_path: str = "profiles/search_criteria.md"
+    search_params_path: str = ".state/search_params.md"
+    cookies_path: str = ".state/cookies.json"
+    output_jobs_path: str = "output/matched_jobs.md"
+    output_gaps_path: str = "output/skills_gap.md"
 
 
 settings = Settings()

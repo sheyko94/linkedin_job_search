@@ -1,34 +1,29 @@
-import argparse
 import sys
 
-from config.logging import configure
-from config.settings import settings
 from agents.coordinator import run
 from config.display import console, display
+from config.logging import configure
 
 
 def main() -> None:
     configure()
-    parser = argparse.ArgumentParser(description="Multi-agent AI query system")
-    parser.add_argument("query", help="The question to answer")
-    args = parser.parse_args()
 
-    query = args.query.strip()
-    if not query:
-        console.print("[bold red]Error:[/bold red] Query cannot be empty.")
-        sys.exit(1)
-    if len(query) > settings.max_query_length:
-        console.print(f"[bold red]Error:[/bold red] Query exceeds maximum length of {settings.max_query_length} characters.")
-        sys.exit(1)
-
-    with console.status("[bold blue]Processing…[/bold blue]"):
+    with console.status("[bold blue]Running LinkedIn job search pipeline…[/bold blue]"):
         try:
-            result = run(query)
+            session = run()
+        except FileNotFoundError as exc:
+            console.print(f"[bold red]Config error:[/bold red] {exc}")
+            console.print(
+                "\n[dim]Set up your profile by editing:[/dim]\n"
+                "  [cyan]profiles/profile.md[/cyan] — your skills and experience\n"
+                "  [cyan]profiles/search_criteria.md[/cyan] — what jobs to search for"
+            )
+            sys.exit(1)
         except Exception as exc:
             console.print(f"[bold red]Error:[/bold red] {exc}")
-            sys.exit(1)
+            raise
 
-    display(result)
+    display(session)
 
 
 if __name__ == "__main__":
