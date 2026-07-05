@@ -15,8 +15,8 @@ def main() -> None:
             console.print(f"[bold red]Config error:[/bold red] {exc}")
             console.print(
                 "\n[dim]Set up your profile by editing:[/dim]\n"
-                "  [cyan]profiles/profile.md[/cyan] — your skills and experience\n"
-                "  [cyan]profiles/search_criteria.md[/cyan] — what jobs to search for"
+                "  [cyan].input/profile.md[/cyan] — your skills and experience\n"
+                "  [cyan].input/search_criteria.md[/cyan] — what jobs to search for"
             )
             sys.exit(1)
         except Exception as exc:

@@ -6,8 +6,8 @@ class JobPosting(BaseModel):
     title: str
     company: str
     location: str
-    job_type: str = ""       # full-time, part-time, contract
-    work_mode: str = ""      # remote, hybrid, on-site
+    job_type: str = ""  # full-time, part-time, contract
+    work_mode: str = ""  # remote, hybrid, on-site
     description: str = ""
     requirements: list[str] = Field(default_factory=list)
     url: str
@@ -18,18 +18,20 @@ class JobPosting(BaseModel):
 
 class MatchResult(BaseModel):
     job: JobPosting
-    score: float             # 0.0–1.0
+    score: float  # 0.0–1.0
     matching_skills: list[str]
     missing_skills: list[str]
     match_reason: str
-    recommendation: str      # "Strong Match" | "Good Match" | "Weak Match" | "Skip"
+    recommendation: str  # "Strong Match" | "Good Match" | "Weak Match" | "Skip"
 
 
 class SkillGap(BaseModel):
     skill: str
-    category: str            # "Programming Language" | "Framework" | "Cloud/DevOps" | "Domain Knowledge" | "Soft Skill" | "Other"
-    frequency: int           # how many jobs in this session require it
-    priority: str            # "High" | "Medium" | "Low"
+    # category values: "Programming Language" | "Framework" | "Cloud/DevOps" |
+    # "Domain Knowledge" | "Soft Skill" | "Other"
+    category: str
+    frequency: int  # how many jobs in this session require it
+    priority: str  # "High" | "Medium" | "Low"
 
 
 class SearchSession(BaseModel):

@@ -1,4 +1,5 @@
-"""Orchestrator — runs the LinkedIn job search pipeline and manages refinement between iterations."""
+"""Orchestrator — runs the LinkedIn job search pipeline and manages refinement
+between iterations."""
 
 import time
 import uuid
@@ -8,10 +9,10 @@ import structlog.contextvars
 
 from agents import matcher, search, skills_gap
 from agents.models import SearchSession
-from config import md_loader
+from config import reader, writer
 from config.logging import get_logger
 from config.settings import settings
-from llm import client as llm
+from llm import anthropic as llm
 
 logger = get_logger(__name__)
 
@@ -78,6 +79,7 @@ def _refinement_prompt(session: SearchSession, prior_params: str, profile_md: st
 # Main pipeline
 # ---------------------------------------------------------------------------
 
+
 def run() -> SearchSession:
     session_id = str(uuid.uuid4())[:8]
     structlog.contextvars.bind_contextvars(session_id=session_id)
@@ -86,16 +88,16 @@ def run() -> SearchSession:
 
     logger.info("coordinator_start", session_id=session_id)
 
-    profile_md = md_loader.load_profile()
-    criteria_md = md_loader.load_search_criteria()
-    search_params_md = md_loader.load_search_params()
+    profile_md = reader.load_profile()
+    criteria_md = reader.load_search_criteria()
+    search_params_md = reader.load_search_params()
 
     # Bootstrap: if no prior search params, initialise from criteria
     if not search_params_md.strip():
         search_params_md = (
             f"# Search Parameters (auto-initialised from search_criteria.md)\n\n{criteria_md}"
         )
-        md_loader.save_search_params(search_params_md)
+        writer.save_search_params(search_params_md)
         logger.info("coordinator_params_initialised_from_criteria")
 
     session = SearchSession(
@@ -125,7 +127,9 @@ def run() -> SearchSession:
         seen_ids = {j.id for j in session.jobs_found}
         unique_new = [j for j in new_jobs if j.id not in seen_ids]
         session.jobs_found.extend(unique_new)
-        logger.info("coordinator_search_done", new_jobs=len(unique_new), total=len(session.jobs_found))
+        logger.info(
+            "coordinator_search_done", new_jobs=len(unique_new), total=len(session.jobs_found)
+        )
 
         if not unique_new:
             logger.info("coordinator_no_new_jobs_stopping")
@@ -147,7 +151,7 @@ def run() -> SearchSession:
                 max_tokens=2048,
             )
             search_params_md = refined_params
-            md_loader.save_search_params(refined_params)
+            writer.save_search_params(refined_params)
             logger.info("coordinator_params_refined")
 
             # Extract refinement hint for next search agent call
@@ -160,8 +164,8 @@ def run() -> SearchSession:
     logger.info("coordinator_skills_gap_done", gaps=len(session.skill_gaps))
 
     # 5. Persist outputs
-    md_loader.save_matched_jobs(session)
-    md_loader.save_skills_gap(session.skill_gaps, session_id)
+    writer.save_matched_jobs(session)
+    writer.save_skills_gap(session.skill_gaps, session_id)
 
     total_ms = int((time.monotonic() - start) * 1000)
     logger.info(

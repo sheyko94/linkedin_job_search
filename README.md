@@ -5,8 +5,8 @@ A multi-agent pipeline that searches LinkedIn, scores jobs against your profile,
 ## How it works
 
 ```
-profiles/profile.md          ← your skills & preferences
-profiles/search_criteria.md  ← what you're looking for
+.input/profile.md          ← your skills & preferences
+.input/search_criteria.md  ← what you're looking for
         │
         ▼
   Coordinator (scripted)
@@ -20,8 +20,8 @@ profiles/search_criteria.md  ← what you're looking for
   └──────────────────────────────────────────────┘
         │
         ▼
-output/matched_jobs.md   ← ranked results with reasoning
-output/skills_gap.md     ← missing skills by category & priority
+.output/matched_jobs.md   ← ranked results with reasoning
+.output/skills_gap.md     ← missing skills by category & priority
 ```
 
 **Search Agent** is an LLM agent with two browser tools (`scrape_jobs`, `get_job_details`). It decides which keyword combinations and filters to try, then drives Playwright to scrape LinkedIn.
@@ -42,7 +42,7 @@ agents/
   skills_gap.py    — Skills Gap Agent (single LLM call, JSON output)
   models.py        — JobPosting, MatchResult, SkillGap, SearchSession
 
-browser/
+tools/
   linkedin.py      — login (cookies → credentials → manual), URL builder, scraper
 
 llm/
@@ -52,9 +52,10 @@ config/
   settings.py      — all settings via pydantic-settings + .env
   logging.py       — structlog JSON output
   display.py       — Rich terminal output
-  md_loader.py     — load/write Markdown config and output files
+  reader.py        — load .input/ and .state/ files into the pipeline
+  writer.py        — write results to .state/ and .output/
 
-profiles/
+.input/
   profile.md            — your skills, experience, preferences (edit before first run)
   search_criteria.md    — base search keywords, location, filters
 
@@ -62,7 +63,7 @@ profiles/
   search_params.md      — auto-updated each run; evolves from search_criteria.md
   cookies.json          — LinkedIn session cookies (gitignored)
 
-output/
+.output/
   matched_jobs.md       — all matches sorted by score with reasoning
   skills_gap.md         — missing skills grouped by category, with history
 
@@ -78,20 +79,30 @@ uv sync
 uv run playwright install chromium   # one-time browser install
 ```
 
-**Configure**
+### Files you must create before the first run
 
+**`.env`** — copy from `.env.example` and set your API key at minimum:
 ```bash
 cp .env.example .env
-# Edit .env — set ANTHROPIC_API_KEY at minimum
+# Required: ANTHROPIC_API_KEY
 ```
 
-**Set up your profile**
+**`.input/profile.md`** — your skills, experience, and job preferences. The pipeline will fail with an error if this is missing.
 
-```bash
-# Edit these two files before the first run:
-profiles/profile.md          # your skills, experience, job preferences
-profiles/search_criteria.md  # keywords, location, filters
-```
+**`.input/search_criteria.md`** — keywords, location, and filters for the initial search. The pipeline will fail with an error if this is missing.
+
+### Optional input files
+
+**`.input/discard_keywords.txt`** — comma-separated title keywords that cause a job to be skipped before fetching its full description (e.g. `frontend, ios, android`). If the file is absent, no jobs are discarded by title.
+
+### Auto-generated files (do not create manually)
+
+| File | Created by |
+| --- | --- |
+| `.state/search_params.md` | Coordinator, after first run — evolves from `search_criteria.md` |
+| `.state/cookies.json` | Browser login flow — reused on subsequent runs |
+| `.output/matched_jobs.md` | Coordinator, after each run |
+| `.output/skills_gap.md` | Coordinator, after each run |
 
 **Run**
 

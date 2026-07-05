@@ -1,48 +1,18 @@
-"""Load and update markdown configuration and output files."""
+"""Write state and output files."""
 
 from datetime import datetime
 from pathlib import Path
 
+from agents.matcher import format_job
 from agents.models import MatchResult, SearchSession, SkillGap
+from config.reader import read_or_empty
 from config.settings import settings
-
-
-def _read(path: str) -> str:
-    p = Path(path)
-    if not p.exists():
-        return ""
-    return p.read_text(encoding="utf-8")
 
 
 def _write(path: str, content: str) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
-
-
-def load_profile() -> str:
-    content = _read(settings.profile_path)
-    if not content:
-        raise FileNotFoundError(
-            f"Profile not found at '{settings.profile_path}'. "
-            "Copy profiles/profile.md.example and fill in your details."
-        )
-    return content
-
-
-def load_search_criteria() -> str:
-    content = _read(settings.search_criteria_path)
-    if not content:
-        raise FileNotFoundError(
-            f"Search criteria not found at '{settings.search_criteria_path}'. "
-            "Copy profiles/search_criteria.md.example and fill in your criteria."
-        )
-    return content
-
-
-def load_search_params() -> str:
-    """Load evolving search params. Returns empty string if no prior session."""
-    return _read(settings.search_params_path)
 
 
 def save_search_params(content: str) -> None:
@@ -71,15 +41,18 @@ def save_matched_jobs(session: SearchSession) -> None:
         by_rec.setdefault(m.recommendation, []).append(m)
 
     order = ["Strong Match", "Good Match", "Weak Match", "Skip"]
+    headings = {"Skip": "Skipped"}
     for rec in order:
         matches = by_rec.get(rec, [])
         if not matches:
             continue
-        lines += [f"## {rec} ({len(matches)})", ""]
+        heading = headings.get(rec, rec.replace(" Match", ""))
+        lines += [f"## {heading} ({len(matches)})", ""]
         for m in sorted(matches, key=lambda x: x.score, reverse=True):
             lines += [
                 f"### [{m.job.title} @ {m.job.company}]({m.job.url})",
-                f"**Score:** {m.score:.0%} | **Location:** {m.job.location} | **Mode:** {m.job.work_mode or '—'}",
+                f"**Score:** {m.score:.0%} | **Location:** {m.job.location} | "
+                f"**Mode:** {m.job.work_mode or '—'}",
                 f"**Reason:** {m.match_reason}",
                 "",
             ]
@@ -87,7 +60,20 @@ def save_matched_jobs(session: SearchSession) -> None:
                 lines.append(f"**Matching:** {', '.join(m.matching_skills)}")
             if m.missing_skills:
                 lines.append(f"**Missing:** {', '.join(m.missing_skills)}")
-            lines += ["", "---", ""]
+            lines += [
+                "",
+                "<details><summary><strong>Context</strong> — exact info the "
+                "matcher used</summary>",
+                "",
+                "```",
+                format_job(m.job),
+                "```",
+                "",
+                "</details>",
+                "",
+                "---",
+                "",
+            ]
 
     _write(settings.output_jobs_path, "\n".join(lines))
 
@@ -118,7 +104,7 @@ def save_skills_gap(gaps: list[SkillGap], session_id: str) -> None:
             lines.append(f"| {g.skill} | {g.frequency} jobs | {g.priority} |")
         lines += [""]
 
-    existing = _read(settings.output_gaps_path)
+    existing = read_or_empty(settings.output_gaps_path)
     if existing and existing.strip():
         lines += ["---", "", "## Previous Sessions", "", existing]
 

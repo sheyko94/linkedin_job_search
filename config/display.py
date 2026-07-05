@@ -24,6 +24,10 @@ def _rec_style(rec: str) -> str:
     }.get(rec, "white")
 
 
+def _rec_label(rec: str) -> str:
+    return rec.replace(" Match", "")
+
+
 def display(session: SearchSession) -> None:
     # Summary panel
     console.print(
@@ -40,50 +44,43 @@ def display(session: SearchSession) -> None:
     # Matched jobs table (top 20, sorted by score)
     if session.matched_jobs:
         table = Table(title="Job Matches", show_lines=True, border_style="dim")
-        table.add_column("Recommendation", style="bold", no_wrap=True)
-        table.add_column("Score", justify="right")
-        table.add_column("Title", max_width=35)
-        table.add_column("Company", max_width=25)
-        table.add_column("Location", max_width=20)
+        table.add_column("Match", style="bold", no_wrap=True)
+        table.add_column("Title", max_width=45)
         table.add_column("Missing Skills", max_width=35)
-        table.add_column("Link", max_width=20)
+        table.add_column("Link", no_wrap=True)
 
-        sorted_matches = sorted(session.matched_jobs, key=lambda r: r.score, reverse=True)
+        sorted_matches = sorted(
+            [r for r in session.matched_jobs if r.recommendation != "Skip"],
+            key=lambda r: r.score,
+            reverse=True,
+        )
+        skipped = sum(1 for r in session.matched_jobs if r.recommendation == "Skip")
         for r in sorted_matches[:20]:
             color = _score_color(r.score)
-            link = f"[link={r.job.url}]Open[/link]" if r.job.url else "—"
+            link = r.job.url or "—"
+            title = r.job.title
+            if r.job.company:
+                title += f" [dim]\\[{r.job.company}][/dim]"
+            match = (
+                f"[{_rec_style(r.recommendation)}]{_rec_label(r.recommendation)}[/]"
+                f" - [{color}]{r.score:.0%}[/{color}]"
+            )
             table.add_row(
-                f"[{_rec_style(r.recommendation)}]{r.recommendation}[/]",
-                f"[{color}]{r.score:.0%}[/{color}]",
-                r.job.title,
-                r.job.company,
-                r.job.location or "—",
+                match,
+                title,
                 ", ".join(r.missing_skills[:4]) or "—",
                 link,
             )
+        if not sorted_matches:
+            console.print("[yellow]No jobs passed the matcher — all scored 'Skip'.[/yellow]")
         console.print(table)
-
-    # Skills gap summary
-    if session.skill_gaps:
-        gap_table = Table(title="Top Skill Gaps", show_lines=False, border_style="dim")
-        gap_table.add_column("Skill", style="cyan")
-        gap_table.add_column("Category")
-        gap_table.add_column("Jobs", justify="right")
-        gap_table.add_column("Priority", justify="center")
-
-        high_gaps = sorted(
-            [g for g in session.skill_gaps if g.priority == "High"],
-            key=lambda g: g.frequency,
-            reverse=True,
-        )
-        for g in high_gaps[:15]:
-            priority_color = "red" if g.priority == "High" else "yellow"
-            gap_table.add_row(
-                g.skill, g.category, str(g.frequency), f"[{priority_color}]{g.priority}[/{priority_color}]"
+        if skipped:
+            console.print(
+                f"[dim]{skipped} job(s) skipped (hard-blocker rules). "
+                f"See the 'Skipped' section in .output/matched_jobs.md for reasons.[/dim]"
             )
-        console.print(gap_table)
 
-    console.print("[dim]Results saved to output/matched_jobs.md and output/skills_gap.md[/dim]")
+    console.print("[dim]Results saved to .output/matched_jobs.md and .output/skills_gap.md[/dim]")
 
     if session.search_refinements:
         console.print(

@@ -8,10 +8,11 @@ from typing import Any
 from playwright.sync_api import sync_playwright
 
 from agents.models import JobPosting
-from browser import linkedin as li
 from config.logging import get_logger
+from config.reader import load_discard_keywords
 from config.settings import settings
-from llm import client as llm
+from llm import anthropic as llm
+from tools import linkedin as li
 
 logger = get_logger(__name__)
 
@@ -46,7 +47,10 @@ _TOOLS = [
                 },
                 "job_types": {
                     "type": "array",
-                    "items": {"type": "string", "enum": ["full-time", "part-time", "contract", "temporary", "internship"]},
+                    "items": {
+                        "type": "string",
+                        "enum": ["full-time", "part-time", "contract", "temporary", "internship"],
+                    },
                     "description": "Job type filters",
                 },
                 "work_modes": {
@@ -56,7 +60,10 @@ _TOOLS = [
                 },
                 "experience_levels": {
                     "type": "array",
-                    "items": {"type": "string", "enum": ["entry", "associate", "mid-senior", "director"]},
+                    "items": {
+                        "type": "string",
+                        "enum": ["entry", "associate", "mid-senior", "director"],
+                    },
                     "description": "Experience level filters",
                 },
             },
@@ -92,9 +99,11 @@ that match the provided search parameters. You have two tools:
 
 Strategy:
 1. Call scrape_jobs with the most relevant keyword combination from the parameters.
-2. If the parameters include multiple keyword groups or locations, call scrape_jobs again with variations.
+2. If the parameters include multiple keyword groups or locations, call scrape_jobs \
+again with variations.
 3. Use get_job_details only for jobs where the card info is insufficient to evaluate the role.
-4. When you have collected enough jobs (aim for the requested max), stop and summarise what you found.
+4. When you have collected enough jobs (aim for the requested max), stop and summarise \
+what you found.
 
 Never invent job data. Only report what the browser returns.\
 """
@@ -134,20 +143,39 @@ def run(
             def on_tool_call(name: str, input: dict) -> str:  # noqa: A002
                 nonlocal scrape_calls
                 if name == "scrape_jobs":
-                    if scrape_calls >= max_scrape_calls or len(jobs_by_id) >= settings.max_total_jobs:
+                    if (
+                        scrape_calls >= max_scrape_calls
+                        or len(jobs_by_id) >= settings.max_total_jobs
+                    ):
                         raise _LimitReached()
                     url = li.build_search_url(
                         keywords=input["keywords"],
                         location=input["location"],
-                        date_posted=input.get("date_posted", "past_week"),
+                        date_posted=input.get("date_posted"),
                         job_types=input.get("job_types"),
                         work_modes=input.get("work_modes"),
                         experience_levels=input.get("experience_levels"),
                     )
                     scrape_calls += 1
                     remaining = settings.max_total_jobs - len(jobs_by_id)
+                    logger.info(
+                        "search_tool_scrape_jobs",
+                        call=scrape_calls,
+                        keywords=input["keywords"],
+                        location=input["location"],
+                        filters={
+                            k: input[k]
+                            for k in ("date_posted", "job_types", "work_modes", "experience_levels")
+                            if input.get(k)
+                        },
+                        url=url,
+                        remaining=remaining,
+                    )
                     cards = [
-                        c for c in li.scrape_job_listings(page, url, max_jobs=min(settings.max_jobs_per_search, remaining))
+                        c
+                        for c in li.scrape_job_listings(
+                            page, url, max_jobs=min(settings.max_jobs_per_search, remaining)
+                        )
                         if c["title"] and c["company"]
                     ]
                     for card in cards:
@@ -161,10 +189,16 @@ def run(
                                 url=card["url"],
                                 easy_apply=card["easy_apply"],
                             )
+                    logger.info(
+                        "search_tool_scrape_jobs_result",
+                        cards_returned=len(cards),
+                        total_collected=len(jobs_by_id),
+                    )
                     return json.dumps(cards, ensure_ascii=False)
 
                 if name == "get_job_details":
                     job_url = input["job_url"]
+                    logger.info("search_tool_get_job_details", job_url=job_url)
                     time.sleep(settings.job_detail_delay_ms / 1000)
                     details = li.get_job_details(page, job_url)
                     # Find the matching job and enrich it
@@ -209,20 +243,14 @@ def run(
     return result
 
 
-_DISCARD_TITLE_KEYWORDS = {
-    "frontend", "front-end", "front end", "ios", "android", "mobile",
-    "qa engineer", "quality assurance", "test engineer", "us-based", "us only",
-    "machine learning", "ml engineer", "ml platform", "data scientist", "data engineer",
-    "research scientist", "applied scientist",
-}
-
-def _is_obvious_discard(job: JobPosting) -> bool:
+def _is_obvious_discard(job: JobPosting, keywords: set[str]) -> bool:
     title_lower = job.title.lower()
-    return any(kw in title_lower for kw in _DISCARD_TITLE_KEYWORDS)
+    return any(kw in title_lower for kw in keywords)
 
 
 def _enrich_jobs(page: Any, jobs_by_id: dict[str, JobPosting]) -> None:
-    to_fetch = [j for j in jobs_by_id.values() if not _is_obvious_discard(j)]
+    keywords = load_discard_keywords()
+    to_fetch = [j for j in jobs_by_id.values() if not _is_obvious_discard(j, keywords)]
     logger.info("search_enriching_jobs", total=len(to_fetch))
     for job in to_fetch:
         try:
