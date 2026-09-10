@@ -55,24 +55,21 @@ _EXP_LEVEL_CODES = {
 def build_search_url(
     keywords: str,
     location: str,
-    date_posted: str | None = None,
-    job_types: list[str] | None = None,
-    work_modes: list[str] | None = None,
     experience_levels: list[str] | None = None,
 ) -> str:
     params = f"keywords={quote_plus(keywords)}&location={quote_plus(location)}"
-    # Recency filter (f_TPR) — defaults to the configured value (past_week).
-    date_posted = date_posted or settings.search_date_posted
-    tpr = _DATE_FILTERS.get(date_posted, _DATE_FILTERS.get(settings.search_date_posted, "r604800"))
+    # Recency filter (f_TPR). Authoritative from settings — not LLM-controllable.
+    tpr = _DATE_FILTERS.get(settings.search_date_posted, "")
     if tpr:
         params += f"&f_TPR={tpr}"
-    if job_types:
-        codes = [_JOB_TYPE_CODES[t] for t in job_types if t in _JOB_TYPE_CODES]
+    # Job-type filter (f_JT). Authoritative from settings; skipped when unset.
+    types = settings.search_job_types_list
+    if types:
+        codes = [_JOB_TYPE_CODES[t] for t in types if t in _JOB_TYPE_CODES]
         if codes:
             params += f"&f_JT={'%2C'.join(codes)}"
-    # Work-mode filter (f_WT). Falls back to the configured default work modes when
-    # the caller doesn't specify any; skipped entirely when neither is set.
-    modes = work_modes or settings.search_work_modes_list
+    # Work-mode filter (f_WT). Authoritative from settings; skipped when unset.
+    modes = settings.search_work_modes_list
     if modes:
         codes = [_WORK_MODE_CODES[m] for m in modes if m in _WORK_MODE_CODES]
         if codes:

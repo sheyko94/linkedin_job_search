@@ -21,10 +21,18 @@ class Settings(BaseSettings):
     max_total_jobs: int
     matcher_batch_size: int
     job_detail_delay_ms: int
+    # Description length shown to the matcher. Must be long enough to include the
+    # requirements/qualifications block, which usually follows the role intro —
+    # truncating too early hides hard requirements and inflates scores. The upstream
+    # fetch caps descriptions at 8000 chars.
+    matcher_description_chars: int = 5000
 
     # Pipeline
     max_refinement_iterations: int
     orchestrator_timeout: float
+
+    # Locations to search — one scrape_jobs call per entry. Comma-separated.
+    search_locations: str = "Remote"
 
     # Search filters (URL-level). Configurable — the profile/criteria drive these.
     # Default recency filter (f_TPR): past_day | past_week | past_month | any_time.
@@ -32,10 +40,22 @@ class Settings(BaseSettings):
     # Work mode(s) applied to f_WT. Comma-separated: remote | hybrid | on-site.
     # Leave empty to skip the work-mode filter entirely.
     search_work_modes: str = "remote"
+    # Job type(s) applied to f_JT. Comma-separated:
+    # full-time | part-time | contract | temporary | internship | volunteer.
+    # Leave empty to skip the job-type filter entirely.
+    search_job_types: str = "contract,temporary,part-time"
+
+    @property
+    def search_locations_list(self) -> list[str]:
+        return [loc.strip() for loc in self.search_locations.split(",") if loc.strip()]
 
     @property
     def search_work_modes_list(self) -> list[str]:
         return [m.strip().lower() for m in self.search_work_modes.split(",") if m.strip()]
+
+    @property
+    def search_job_types_list(self) -> list[str]:
+        return [t.strip().lower() for t in self.search_job_types.split(",") if t.strip()]
 
     # File paths (internal — not exposed in .env)
     profile_path: str = ".input/profile.md"

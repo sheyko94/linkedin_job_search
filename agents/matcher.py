@@ -112,13 +112,6 @@ _INPUT_SCHEMA = {
 }
 
 
-# Descriptions are truncated to this length before being shown to the matcher.
-# Must be long enough to include the requirements/qualifications block, which usually
-# follows the role intro — truncating too early hides hard requirements (e.g. "4+ years
-# Azure") and inflates scores. The upstream fetch caps descriptions at 8000 chars.
-DESCRIPTION_CHARS = 5000
-
-
 def format_job(j: JobPosting) -> str:
     """Render the exact per-job context the matcher LLM receives for its decision."""
     lines = [
@@ -134,7 +127,7 @@ def format_job(j: JobPosting) -> str:
     if j.salary_range:
         lines.append(f"Salary: {j.salary_range}")
     if j.description:
-        lines.append(f"Description:\n{j.description[:DESCRIPTION_CHARS]}")
+        lines.append(f"Description:\n{j.description[: settings.matcher_description_chars]}")
     return "\n".join(lines)
 
 

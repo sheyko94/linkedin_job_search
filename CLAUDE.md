@@ -12,6 +12,55 @@ uv run ruff check .              # lint
 uv run ruff format .             # format
 ```
 
+## Runtime measurements and budgeting
+
+The first measured Agentic AI contract run on 2026-09-10 completed in **179.4 seconds (2m 59s)**
+with these inputs/settings:
+
+- profile: 1,126 words; search criteria: 898 words
+- `MAX_TOTAL_JOBS=30`, `MAX_JOBS_PER_SEARCH=10`
+- three search calls; 20 unique jobs collected; 19 descriptions enriched
+- `JOB_DETAIL_DELAY_MS=3000`, `MATCHER_BATCH_SIZE=15`
+- two matcher calls (15 + 5 jobs), one search/match iteration; no refinement step
+
+Observed stage times were 7.5 s for startup/login/planning, 47.4 s for listing searches, 93.8 s
+for detail enrichment, 28.6 s for matching, and about 2 s for skills-gap analysis/output. Detail
+enrichment was the dominant cost at 4.9 s/job, including the configured 3 s delay.
+
+A second, broader run on the same date used `MAX_TOTAL_JOBS=150`,
+`MAX_JOBS_PER_SEARCH=20`, and matcher batches of 20. Eight search calls found 80 unique jobs and
+enriched 74 descriptions. It completed in **706.6 seconds (11m 47s)**: 7.5 s startup, 142.8 s
+listing search, 400.1 s enrichment (5.4 s/job), 140.4 s matching, and 15.9 s final analysis/output.
+The pooled end-to-end throughput across both measured runs is about **8.9 seconds per unique
+job**. Unique-job yield can remain below `MAX_TOTAL_JOBS` because query results overlap and the
+search-agent call budget is finite.
+
+Use the full runtime-planning guide and measurement table in `README.md`. A rough one-iteration
+estimate is:
+
+```text
+8 s startup
++ 10–30 s × scrape call count
++ enriched jobs × (detail delay + ~2 s browser overhead)
++ 7–45 s × matcher batch count
++ 2–20 s final analysis/output
+```
+
+Scrape call count is `ceil(MAX_TOTAL_JOBS / MAX_JOBS_PER_SEARCH)`. More refinement iterations
+repeat the expensive search/enrichment/matching stages. `ORCHESTRATOR_TIMEOUT` is only checked
+between coordinator stages and does not interrupt an in-flight browser or API call, so it is a
+soft deadline rather than a strict wall-clock timeout.
+
+### Known quality limitation from the baseline run
+
+LinkedIn's `full-time` metadata may describe weekly commitment rather than the legal engagement.
+In the baseline run, six duplicate Gramian postings said `CONTRACT: Contractor assignment` and
+`COMMITMENT: Full-time` in their descriptions, but `tools/linkedin.py` extracted `job_type` as
+`full-time`. The matcher then incorrectly treated them as permanent employment and skipped them.
+Until this is fixed, manually verify high-fit skips where the description contains contractor,
+B2B, freelance, interim, or day-rate language. Also note that coordinator deduplication uses only
+LinkedIn job ID, so recruiter reposts with different IDs can remain as duplicates.
+
 ## Configuration files
 
 **Required — must be created before running:**

@@ -40,24 +40,6 @@ _TOOLS = [
                     "type": "string",
                     "description": "Location string, e.g. 'San Francisco Bay Area' or 'Remote'",
                 },
-                "date_posted": {
-                    "type": "string",
-                    "enum": ["past_day", "past_week", "past_month", "any_time"],
-                    "description": "Recency filter for job postings",
-                },
-                "job_types": {
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "enum": ["full-time", "part-time", "contract", "temporary", "internship"],
-                    },
-                    "description": "Job type filters",
-                },
-                "work_modes": {
-                    "type": "array",
-                    "items": {"type": "string", "enum": ["remote", "hybrid", "on-site"]},
-                    "description": "Work mode filters",
-                },
                 "experience_levels": {
                     "type": "array",
                     "items": {
@@ -110,9 +92,11 @@ Never invent job data. Only report what the browser returns.\
 
 
 def _format_search_params(search_params_md: str, criteria_md: str) -> str:
+    locations = ", ".join(settings.search_locations_list)
     return (
         f"## Current Search Parameters\n{search_params_md}\n\n"
         f"## Base Search Criteria\n{criteria_md}\n\n"
+        f"Locations to search (call scrape_jobs once per location): {locations}\n"
         f"Max jobs per search call: {settings.max_jobs_per_search}\n"
         f"Max total jobs to collect across all calls: {settings.max_total_jobs}\n"
         "Stop calling scrape_jobs once you reach the total limit.\n"
@@ -151,9 +135,6 @@ def run(
                     url = li.build_search_url(
                         keywords=input["keywords"],
                         location=input["location"],
-                        date_posted=input.get("date_posted"),
-                        job_types=input.get("job_types"),
-                        work_modes=input.get("work_modes"),
                         experience_levels=input.get("experience_levels"),
                     )
                     scrape_calls += 1
@@ -164,9 +145,10 @@ def run(
                         keywords=input["keywords"],
                         location=input["location"],
                         filters={
-                            k: input[k]
-                            for k in ("date_posted", "job_types", "work_modes", "experience_levels")
-                            if input.get(k)
+                            "date_posted": settings.search_date_posted,
+                            "job_types": settings.search_job_types_list,
+                            "work_modes": settings.search_work_modes_list,
+                            "experience_levels": input.get("experience_levels"),
                         },
                         url=url,
                         remaining=remaining,
