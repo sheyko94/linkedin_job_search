@@ -33,3 +33,6 @@ dist/
 
 .claude
 .ruff_cache
+
+
+.idea/
