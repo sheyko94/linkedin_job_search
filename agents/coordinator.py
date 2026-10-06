@@ -1,181 +1,246 @@
-"""Orchestrator — runs the LinkedIn job search pipeline and manages refinement
-between iterations."""
+"""LangGraph workflow for search, matching, refinement, and reporting."""
 
 import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime
+from typing import Literal, TypedDict
 
 import structlog.contextvars
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
-from agents import matcher, search, skills_gap
-from agents.models import SearchSession
+from agents import matcher, refinement, search, skills_gap
+from agents.models import JobPosting, MatchResult, SearchSession, SkillGap
 from config import reader, writer
 from config.logging import get_logger
 from config.settings import settings
-from llm import anthropic as llm
 
 logger = get_logger(__name__)
 
-# ---------------------------------------------------------------------------
-# Refinement prompt — coordinator LLM decides how to improve next search
-# ---------------------------------------------------------------------------
 
-_REFINEMENT_SYSTEM = """\
-You are a search strategy advisor for a LinkedIn job search pipeline. \
-Given the results of a profile matching session, your job is to recommend \
-concrete improvements to the search parameters for the next iteration.
+class PipelineState(TypedDict):
+    """Workflow data. Nodes return partial updates; other fields remain unchanged.
 
-Analyse:
-- Which jobs scored highly and what they have in common
-- Which jobs scored poorly and why
-- What search terms, filters, or locations might yield better results
+    Lists use LangGraph's default replacement behavior. Each accumulating node
+    returns a new complete list, so no append reducers are needed in this graph.
+    """
 
-Output a Markdown document for .state/search_params.md with:
-1. A summary of insights from this session
-2. Updated search parameters (keywords, location, experience level, work mode, date filter)
-3. What changed from the previous params and why
-
-Be specific and actionable. The next search agent will use this document literally.\
-"""
-
-
-def _refinement_prompt(session: SearchSession, prior_params: str, profile_md: str) -> str:
-    strong = [m for m in session.matched_jobs if m.recommendation == "Strong Match"]
-    good = [m for m in session.matched_jobs if m.recommendation == "Good Match"]
-    weak = [m for m in session.matched_jobs if m.recommendation in ("Weak Match", "Skip")]
-
-    lines = [
-        f"## Session Results — {session.timestamp}",
-        f"Jobs scraped: {len(session.jobs_found)} | Matched: {len(session.matched_jobs)}",
-        f"Strong matches: {len(strong)} | Good: {len(good)} | Weak/Skip: {len(weak)}",
-        "",
-    ]
-
-    if strong:
-        lines.append("### Strong Matches")
-        for match in strong[:5]:
-            lines.append(f"- {match.job.title} @ {match.job.company} — {match.match_reason}")
-        lines.append("")
-
-    if session.skill_gaps:
-        high_gaps = [gap for gap in session.skill_gaps if gap.priority == "High"]
-        lines.append("### Top Missing Skills")
-        for gap in high_gaps[:8]:
-            lines.append(f"- {gap.skill} ({gap.category}, {gap.frequency} jobs)")
-        lines.append("")
-
-    lines += [
-        "## Current Search Parameters",
-        prior_params,
-        "",
-        "## User Profile (summary context)",
-        profile_md[:1500],
-    ]
-
-    return "\n".join(lines)
+    session_id: str
+    timestamp: str
+    profile_md: str
+    criteria_md: str
+    search_params_md: str
+    search_params_used: dict
+    iteration: int  # Number of searches started, initially zero.
+    deadline: float  # Monotonic time; only valid within this process.
+    new_jobs: list[JobPosting]
+    jobs_found: list[JobPosting]
+    matched_jobs: list[MatchResult]
+    skill_gaps: list[SkillGap]
+    search_refinements: list[str]
 
 
-# ---------------------------------------------------------------------------
-# Main pipeline
-# ---------------------------------------------------------------------------
+def _to_session(state: PipelineState) -> SearchSession:
+    """Adapt graph state to the existing report and terminal display contract."""
+    return SearchSession(
+        session_id=state["session_id"],
+        timestamp=state["timestamp"],
+        search_params_used=state["search_params_used"],
+        jobs_found=state["jobs_found"],
+        matched_jobs=state["matched_jobs"],
+        skill_gaps=state["skill_gaps"],
+        search_refinements=state["search_refinements"],
+    )
 
 
-def run() -> SearchSession:
-    session_id = str(uuid.uuid4())[:8]
-    structlog.contextvars.bind_contextvars(session_id=session_id)
-    start = time.monotonic()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    logger.info("coordinator_start", session_id=session_id)
-
+def _load_inputs(state: PipelineState) -> dict:
     profile_md = reader.load_profile()
     criteria_md = reader.load_search_criteria()
     search_params_md = reader.load_search_params()
-
-    # Bootstrap: if no prior search params, initialise from criteria
     if not search_params_md.strip():
         search_params_md = (
             f"# Search Parameters (auto-initialised from search_criteria.md)\n\n{criteria_md}"
         )
         writer.save_search_params(search_params_md)
         logger.info("coordinator_params_initialised_from_criteria")
+    return {
+        "profile_md": profile_md,
+        "criteria_md": criteria_md,
+        "search_params_md": search_params_md,
+    }
 
-    session = SearchSession(
-        session_id=session_id,
-        timestamp=now,
-        search_params_used={},
+
+def _can_search(state: PipelineState) -> bool:
+    if state["iteration"] >= settings.max_refinement_iterations:
+        return False
+    if time.monotonic() > state["deadline"]:
+        logger.warning("coordinator_timeout", iteration=state["iteration"])
+        return False
+    return True
+
+
+def _route_after_load(state: PipelineState) -> Literal["search", "analyze_gaps"]:
+    return "search" if _can_search(state) else "analyze_gaps"
+
+
+def _search_jobs(state: PipelineState) -> dict:
+    iteration = state["iteration"] + 1
+    logger.info("coordinator_iteration_start", iteration=iteration)
+    refinements = state["search_refinements"]
+    refinement_hint = refinements[-1] if refinements else ""
+    snapshot = {
+        "iteration": iteration,
+        "search_params_md": state["search_params_md"],
+        "criteria_md": state["criteria_md"],
+        "refinement_hint": refinement_hint,
+        "effective_settings": {
+            "locations": settings.search_locations_list,
+            "date_posted": settings.search_date_posted,
+            "work_modes": settings.search_work_modes_list,
+            "job_types": settings.search_job_types_list,
+            "max_jobs_per_search": settings.max_jobs_per_search,
+            "max_total_jobs": settings.max_total_jobs,
+        },
+    }
+    new_jobs = search.run(
+        search_params_md=state["search_params_md"],
+        criteria_md=state["criteria_md"],
+        refinement_hint=refinement_hint,
     )
+    return {
+        "new_jobs": new_jobs,
+        "iteration": iteration,
+        "search_params_used": {
+            **state["search_params_used"],
+            "iterations": state["search_params_used"]["iterations"] + [snapshot],
+        },
+    }
 
-    deadline = start + settings.orchestrator_timeout
 
-    for iteration in range(settings.max_refinement_iterations):
-        if time.monotonic() > deadline:
-            logger.warning("coordinator_timeout", iteration=iteration)
-            break
+def _deduplicate_jobs(state: PipelineState) -> dict:
+    # Search already deduplicates within an iteration; this filters prior iterations.
+    seen_ids = {job.id for job in state["jobs_found"]}
+    unique_new = [job for job in state["new_jobs"] if job.id not in seen_ids]
+    jobs_found = state["jobs_found"] + unique_new
+    logger.info("coordinator_search_done", new_jobs=len(unique_new), total=len(jobs_found))
+    return {"new_jobs": unique_new, "jobs_found": jobs_found}
 
-        logger.info("coordinator_iteration_start", iteration=iteration + 1)
 
-        # 1. Search
-        refinement_hint = session.search_refinements[-1] if session.search_refinements else ""
-        new_jobs = search.run(
-            search_params_md=search_params_md,
-            criteria_md=criteria_md,
-            refinement_hint=refinement_hint,
-        )
+def _route_after_deduplication(state: PipelineState) -> Literal["match", "analyze_gaps"]:
+    if state["new_jobs"]:
+        return "match"
+    logger.info("coordinator_no_new_jobs_stopping")
+    return "analyze_gaps"
 
-        # Deduplicate against prior iterations
-        seen_ids = {j.id for j in session.jobs_found}
-        unique_new = [j for j in new_jobs if j.id not in seen_ids]
-        session.jobs_found.extend(unique_new)
-        logger.info(
-            "coordinator_search_done", new_jobs=len(unique_new), total=len(session.jobs_found)
-        )
 
-        if not unique_new:
-            logger.info("coordinator_no_new_jobs_stopping")
-            break
+def _match_jobs(state: PipelineState) -> dict:
+    new_matches = matcher.run(state["new_jobs"], state["profile_md"])
+    logger.info("coordinator_matching_done", matched=len(new_matches))
+    return {"matched_jobs": state["matched_jobs"] + new_matches}
 
-        # 2. Match
-        new_matches = matcher.run(unique_new, profile_md)
-        session.matched_jobs.extend(new_matches)
-        logger.info("coordinator_matching_done", matched=len(new_matches))
 
-        # 3. Refine search params for next iteration (skip on last iteration)
-        if iteration < settings.max_refinement_iterations - 1:
-            if time.monotonic() > deadline:
-                break
-            refined_params = llm.complete(
-                system=_REFINEMENT_SYSTEM,
-                user=_refinement_prompt(session, search_params_md, profile_md),
-                model=settings.orchestrator_model,
-                max_tokens=2048,
-            )
-            search_params_md = refined_params
-            writer.save_search_params(refined_params)
-            logger.info("coordinator_params_refined")
+def _route_after_matching(state: PipelineState) -> Literal["refine", "analyze_gaps"]:
+    return "refine" if _can_search(state) else "analyze_gaps"
 
-            # Extract refinement hint for next search agent call
-            session.search_refinements.append(
-                f"Iteration {iteration + 1} refinement applied — see .state/search_params.md"
-            )
 
-    # 4. Skills gap analysis across all sessions
-    session.skill_gaps = skills_gap.run(session.matched_jobs)
-    logger.info("coordinator_skills_gap_done", gaps=len(session.skill_gaps))
+def _refine_params(state: PipelineState) -> dict:
+    refined_params = refinement.run(
+        session=_to_session(state),
+        prior_params=state["search_params_md"],
+        profile_md=state["profile_md"],
+    )
+    writer.save_search_params(refined_params)
+    logger.info("coordinator_params_refined")
+    hint = f"Iteration {state['iteration']} refinement applied — see .state/search_params.md"
+    return {
+        "search_params_md": refined_params,
+        "search_refinements": state["search_refinements"] + [hint],
+    }
 
-    # 5. Persist outputs
+
+def _analyze_gaps(state: PipelineState) -> dict:
+    gaps = skills_gap.run(state["matched_jobs"])
+    logger.info("coordinator_skills_gap_done", gaps=len(gaps))
+    return {"skill_gaps": gaps}
+
+
+def _persist_reports(state: PipelineState) -> dict:
+    session = _to_session(state)
     writer.save_matched_jobs(session)
-    writer.save_skills_gap(session.skill_gaps, session_id)
+    writer.save_skills_gap(session.skill_gaps, session.session_id)
+    return {}
 
-    total_ms = int((time.monotonic() - start) * 1000)
-    logger.info(
-        "coordinator_complete",
-        session_id=session_id,
-        total_jobs=len(session.jobs_found),
-        total_matched=len(session.matched_jobs),
-        total_gaps=len(session.skill_gaps),
-        latency_ms=total_ms,
-    )
 
-    structlog.contextvars.clear_contextvars()
-    return session
+def build_graph() -> CompiledStateGraph:
+    """Declare the workflow. This first migration has no checkpointer or retries."""
+    graph = StateGraph(PipelineState)
+    graph.add_node("load_inputs", _load_inputs)
+    graph.add_node("search", _search_jobs)
+    graph.add_node("deduplicate", _deduplicate_jobs)
+    graph.add_node("match", _match_jobs)
+    graph.add_node("refine", _refine_params)
+    graph.add_node("analyze_gaps", _analyze_gaps)
+    graph.add_node("persist", _persist_reports)
+
+    graph.add_edge(START, "load_inputs")
+    graph.add_conditional_edges("load_inputs", _route_after_load)
+    graph.add_edge("search", "deduplicate")
+    graph.add_conditional_edges("deduplicate", _route_after_deduplication)
+    graph.add_conditional_edges("match", _route_after_matching)
+    # Refinement can consume the remaining time: check again before searching.
+    graph.add_conditional_edges("refine", _route_after_load)
+    graph.add_edge("analyze_gaps", "persist")
+    graph.add_edge("persist", END)
+    return graph.compile()
+
+
+def run(on_stage: Callable[[str], None] | None = None) -> SearchSession:
+    """Run the graph, optionally reporting node starts without exposing state."""
+    session_id = str(uuid.uuid4())[:8]
+    structlog.contextvars.bind_contextvars(session_id=session_id)
+    start = time.monotonic()
+    logger.info("coordinator_start", session_id=session_id)
+    initial_state: PipelineState = {
+        "session_id": session_id,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "profile_md": "",
+        "criteria_md": "",
+        "search_params_md": "",
+        "search_params_used": {"iterations": []},
+        "iteration": 0,
+        "deadline": start + settings.orchestrator_timeout,
+        "new_jobs": [],
+        "jobs_found": [],
+        "matched_jobs": [],
+        "skill_gaps": [],
+        "search_refinements": [],
+    }
+    try:
+        # Graph steps are not search iterations. Allow enough steps for the entire
+        # configured loop plus initialization and final reporting.
+        state = initial_state
+        for mode, event in build_graph().stream(
+            initial_state,
+            config={"recursion_limit": max(10, settings.max_refinement_iterations * 5 + 5)},
+            stream_mode=["tasks", "values"],
+        ):
+            if mode == "tasks" and "input" in event:
+                # Task-start events contain input; completion events contain result.
+                # Send only the node name to the UI, never profiles or descriptions.
+                if on_stage is not None:
+                    on_stage(event["name"])
+            elif mode == "values":
+                state = event
+        session = _to_session(state)
+        logger.info(
+            "coordinator_complete",
+            session_id=session_id,
+            total_jobs=len(session.jobs_found),
+            total_matched=len(session.matched_jobs),
+            total_gaps=len(session.skill_gaps),
+            latency_ms=int((time.monotonic() - start) * 1000),
+        )
+        return session
+    finally:
+        structlog.contextvars.clear_contextvars()

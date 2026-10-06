@@ -67,7 +67,7 @@ LinkedIn job ID, so recruiter reposts with different IDs can remain as duplicate
 
 | File | Purpose |
 | --- | --- |
-| `.env` | API keys and all runtime settings (copy from `.env.example`) |
+| `.env` | API key and optional runtime overrides (copy from `.env.example`) |
 | `.input/profile.md` | Your skills, experience, and job preferences |
 | `.input/search_criteria.md` | Base search keywords, location, and filters |
 
@@ -89,10 +89,14 @@ LinkedIn job ID, so recruiter reposts with different IDs can remain as duplicate
 
 ## Agent rules
 
+Do not add tests unless the user explicitly requests them. During this migration, prefer
+import, compilation, and lint checks.
+
 Each agent has a strict scope it must never cross:
 
 - **Coordinator** (`agents/coordinator.py`) — runs the pipeline, calls sub-agents. Never scrapes or scores directly.
-- **Search Agent** (`agents/search.py`) — scrapes LinkedIn via browser tools. Tool schemas (`_TOOLS`) are defined inline. Never scores or analyses.
+- **Search Agent** (`agents/search.py`) — scrapes LinkedIn via browser tools. Typed tools and input schemas are defined in `tools/search_tools.py`. Never scores or analyses.
+- **Refinement** (`agents/refinement.py`) — recommends search parameters as Markdown. Never scrapes, scores, or writes files; the coordinator persists its output.
 - **Matcher Agent** (`agents/matcher.py`) — scores jobs against profile. Never scrapes or browses.
 - **Skills Gap Agent** (`agents/skills_gap.py`) — categorises missing skills. Never scrapes or browses.
 
@@ -100,18 +104,67 @@ Each agent has a strict scope it must never cross:
 
 | File | Purpose |
 | --- | --- |
-| `agents/coordinator.py` | Orchestrator — scripted pipeline + LLM refinement loop |
+| `agents/coordinator.py` | LangGraph orchestration, routing, and persistence |
+| `agents/refinement.py` | LangChain search-parameter advice; returns Markdown |
 | `agents/search.py` | Search Agent — LLM + Playwright browser tools |
 | `agents/matcher.py` | Matcher Agent — single LLM call, JSON output |
 | `agents/skills_gap.py` | Skills Gap Agent — single LLM call, JSON output |
 | `agents/models.py` | `JobPosting`, `MatchResult`, `SkillGap`, `SearchSession` |
+| `agents/model_client.py` | Shared ChatAnthropic construction and automatic logging callbacks |
+| `tools/search_tools.py` | Static StructuredTool definitions using ToolRuntime and Command updates |
+| `tools/search_context.py` | Typed browser dependency supplied at graph invocation |
+| `tools/browser_session.py` | Owns sync Playwright on one dedicated runtime thread |
 | `tools/linkedin.py` | LinkedIn scraping: login, URL building, job extraction |
 | `config/reader.py` | Load `.input/` and `.state/` files into the pipeline |
 | `config/writer.py` | Write results to `.state/` and `.output/` |
-| `config/settings.py` | All settings — mirrored from `.env` |
+| `config/job_formatting.py` | Shared matcher/report context with explicit description limit |
+| `config/settings.py` | Settings defaults and optional environment overrides |
 | `config/logging.py` | structlog JSON configuration |
 | `config/display.py` | Rich terminal output |
-| `llm/anthropic.py` | Anthropic API wrapper — `complete`, `complete_with_tools`, `complete_json` |
+
+## LangGraph migration
+
+Step 1 is implemented in `agents/coordinator.py`: `PipelineState`, node wrappers, conditional
+edges, and `build_graph()`. See the README migration section for current diagrams and the
+learning walkthrough. The CLI return type and existing agent implementations are preserved.
+Step 2a is implemented in `agents/skills_gap.py`: `ChatAnthropic` derives structured tool output
+from Pydantic response models and converts it to the existing `SkillGap` domain model.
+Step 2b is implemented in `agents/matcher.py`: structured Pydantic responses, score bounds,
+and exact batch coverage checks (missing/duplicate/unknown IDs). Duplicate input IDs fail
+before scoring. Step 2c is implemented in `agents/refinement.py`: the prompt/formatter move
+out of the coordinator, and `ChatAnthropic.invoke` returns Markdown. The coordinator saves
+it and updates graph state. Step 3 is implemented in `agents/search.py`: a LangGraph model/tools/enrich subgraph
+uses `ChatAnthropic`, message state, explicit budgets, and sequential tool replies.
+`tools/browser_session.py` keeps sync Playwright on one dedicated thread outside graph state.
+Search binds static `SEARCH_TOOLS` from `tools/search_tools.py`; definitions are created once
+at module import. `SearchContext` is supplied via the graph's `context_schema` and invocation
+context. ToolNode supplies hidden ToolRuntime automatically. A sequential adapter invokes
+one call at a time and gives the next call the previous call's Command updates. It combines
+job/counter/message updates before returning to LangGraph. Listing tools enforce their
+budgets before navigation. ToolNode handles dispatch, validation feedback, and unknown-tool
+replies; its default handler propagates other tool errors. The browser remains outside state
+and the public schemas. There is no separate tool-name registry or manual argument injection.
+All four model components define local `ChatPromptTemplate` objects and compose them with
+the model using `|`. Search uses `MessagesPlaceholder`; its state excludes the system message
+because the template supplies it. Other templates accept named formatted context inputs.
+The unused SDK wrapper is removed; Anthropic is supplied transitively by langchain-anthropic.
+`coordinator.run` streams task-start and values events; an optional callback sends node
+names to the Rich stage display in main.py. Checkpointing and resume are excluded by user
+request. Do not introduce them. No graph retries are enabled. The worked example below describes stage
+behavior before the graph migration; its coordinator line numbers and loop snippets are historical.
+
+Review improvements: login failure raises `LinkedInAuthenticationError` before report writes.
+Enrichment skips jobs with nonblank descriptions and merges only nonblank detail fields.
+Model-facing tool validation failures return error ToolMessages for correction within the
+existing model-call limit; hidden context and execution errors propagate. Refinement receives
+bounded examples/reasons from all match categories and treats configured filters as fixed.
+Numeric limits have Pydantic bounds. The coordinator records per-iteration input guidance and
+effective settings in `search_params_used`; the writer displays them, without credentials or
+profile snapshots. Exact tool calls remain in the trace. Model setup and job formatting use
+small shared helpers. A per-model BaseCallbackHandler logs model start/end/error events,
+usage, latency, and raw response traces; components no longer invoke the logger explicitly.
+Model latency excludes prompt formatting. Prompts, schemas, and parsing stay in their
+respective components; output parsing errors are component errors, not model callback errors.
 
 ## Pipeline flow (worked example)
 

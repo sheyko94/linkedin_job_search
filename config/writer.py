@@ -1,10 +1,11 @@
 """Write state and output files."""
 
+import re
 from datetime import datetime
 from pathlib import Path
 
-from agents.matcher import format_job
 from agents.models import MatchResult, SearchSession, SkillGap
+from config.job_formatting import format_job
 from config.reader import read_or_empty
 from config.settings import settings
 
@@ -19,6 +20,13 @@ def save_search_params(content: str) -> None:
     _write(settings.search_params_path, content)
 
 
+def _guidance_block(content: str) -> list[str]:
+    # Guidance may contain Markdown fences; keep its contents inside this block.
+    longest_run = max((len(run) for run in re.findall(r"`+", content)), default=0)
+    fence = "`" * max(3, longest_run + 1)
+    return [fence, content, fence, ""]
+
+
 def save_matched_jobs(session: SearchSession) -> None:
     now = session.timestamp
     lines = [
@@ -29,6 +37,33 @@ def save_matched_jobs(session: SearchSession) -> None:
         f"**Jobs matched:** {len(session.matched_jobs)}  ",
         "",
     ]
+
+    for snapshot in session.search_params_used.get("iterations", []):
+        effective = snapshot["effective_settings"]
+        lines += [
+            "<details><summary><strong>Search Inputs and Effective Filters</strong> "
+            f"— iteration {snapshot['iteration']}</summary>",
+            "",
+            "These are input guidance and effective settings, not exact executed queries. "
+            "See the execution trace for actual tool calls.",
+            "",
+            f"**Configured locations:** {', '.join(effective['locations']) or '(none)'}  ",
+            f"**Date filter:** {effective['date_posted']}  ",
+            f"**Work modes:** {', '.join(effective['work_modes']) or '(no filter)'}  ",
+            f"**Job types:** {', '.join(effective['job_types']) or '(no filter)'}  ",
+            f"**Max jobs per listing call:** {effective['max_jobs_per_search']}  ",
+            f"**Max collected jobs this iteration:** {effective['max_total_jobs']}",
+            "",
+            "### Search Parameters",
+            "",
+        ]
+        lines += _guidance_block(snapshot["search_params_md"])
+        lines += ["### Base Search Criteria", ""]
+        lines += _guidance_block(snapshot["criteria_md"])
+        if snapshot["refinement_hint"]:
+            lines += ["### Refinement Hint", ""]
+            lines += _guidance_block(snapshot["refinement_hint"])
+        lines += ["</details>", ""]
 
     if session.search_refinements:
         lines += ["## Search Refinements for Next Run", ""]
@@ -66,7 +101,7 @@ def save_matched_jobs(session: SearchSession) -> None:
                 "matcher used</summary>",
                 "",
                 "```",
-                format_job(m.job),
+                format_job(m.job, description_chars=settings.matcher_description_chars),
                 "```",
                 "",
                 "</details>",

@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -5,31 +6,31 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     anthropic_api_key: str
-    orchestrator_model: str
-    search_model: str
-    matcher_model: str
-    skills_gap_model: str
+    orchestrator_model: str = "claude-haiku-4-5-20251001"
+    search_model: str = "claude-haiku-4-5-20251001"
+    matcher_model: str = "claude-haiku-4-5-20251001"
+    skills_gap_model: str = "claude-haiku-4-5-20251001"
 
     # Browser
-    browser_headless: bool
-    browser_slow_mo: int
+    browser_headless: bool = False
+    browser_slow_mo: int = Field(default=800, ge=0)
     linkedin_email: str = ""
     linkedin_password: str = ""
 
     # Scraping
-    max_jobs_per_search: int
-    max_total_jobs: int
-    matcher_batch_size: int
-    job_detail_delay_ms: int
+    max_jobs_per_search: int = Field(default=20, gt=0)
+    max_total_jobs: int = Field(default=25, gt=0)
+    matcher_batch_size: int = Field(default=15, gt=0)
+    job_detail_delay_ms: int = Field(default=4000, ge=0)
     # Description length shown to the matcher. Must be long enough to include the
     # requirements/qualifications block, which usually follows the role intro —
     # truncating too early hides hard requirements and inflates scores. The upstream
     # fetch caps descriptions at 8000 chars.
-    matcher_description_chars: int = 5000
+    matcher_description_chars: int = Field(default=7000, gt=0, le=8000)
 
     # Pipeline
-    max_refinement_iterations: int
-    orchestrator_timeout: float
+    max_refinement_iterations: int = Field(default=1, gt=0)
+    orchestrator_timeout: float = Field(default=600.0, gt=0, allow_inf_nan=False)
 
     # Locations to search — one scrape_jobs call per entry. Comma-separated.
     search_locations: str = "Remote"

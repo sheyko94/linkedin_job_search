@@ -1,10 +1,17 @@
 """Profile Matching Agent — scores each job against the user profile."""
 
+from collections import Counter
+from typing import Literal
+
+from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field
+
+from agents.model_client import create_chat_model
 from agents.models import JobPosting, MatchResult
+from config.job_formatting import format_job
 from config.logging import get_logger
 from config.reader import load_discard_keywords
 from config.settings import settings
-from llm import anthropic as llm
 
 logger = get_logger(__name__)
 
@@ -66,100 +73,82 @@ geographic restriction \
    on where the candidate must live (true worldwide remote).
 5. Role is primarily frontend, mobile, or QA → Skip
 
-For all other jobs, produce one result object per job. Return every job you were given by \
-calling the `submit_matches` tool exactly once with the full list.\
+Produce one result object for every job you were given, including skipped jobs. \
+Return the full list using the provided structured response schema.\
 """
 
-_TOOL_NAME = "submit_matches"
-_INPUT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "matches": {
-            "type": "array",
-            "description": "One entry per job posting provided.",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "job_id": {"type": "string", "description": "The job's id field"},
-                    "score": {
-                        "type": "number",
-                        "description": "How well it matches overall, 0.0–1.0",
-                    },
-                    "matching_skills": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Skills the user has that the job requires",
-                    },
-                    "missing_skills": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Skills the job requires that the user lacks",
-                    },
-                    "match_reason": {
-                        "type": "string",
-                        "description": "1-2 sentences; name which blocker triggered if score is 0",
-                    },
-                    "recommendation": {
-                        "type": "string",
-                        "enum": ["Strong Match", "Good Match", "Weak Match", "Skip"],
-                    },
-                },
-                "required": ["job_id", "score", "recommendation"],
-            },
-        }
-    },
-    "required": ["matches"],
-}
 
-
-def format_job(j: JobPosting) -> str:
-    """Render the exact per-job context the matcher LLM receives for its decision."""
-    lines = [
-        f"### Job ID: {j.id}",
-        f"Title: {j.title}",
-        f"Company: {j.company}",
-        f"Location: {j.location}",
+_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", _SYSTEM),
+        ("human", "## User Profile\n{profile}\n\n## Job Postings\n{jobs}"),
     ]
-    if j.work_mode:
-        lines.append(f"Work mode: {j.work_mode}")
-    if j.job_type:
-        lines.append(f"Job type: {j.job_type}")
-    if j.salary_range:
-        lines.append(f"Salary: {j.salary_range}")
-    if j.description:
-        lines.append(f"Description:\n{j.description[: settings.matcher_description_chars]}")
-    return "\n".join(lines)
+)
+
+
+class MatchItem(BaseModel):
+    """Model response fields; the original job is attached after ID validation."""
+
+    job_id: str = Field(description="The job's id field")
+    score: float = Field(ge=0.0, le=1.0, description="How well it matches overall, 0.0–1.0")
+    matching_skills: list[str] = Field(
+        default_factory=list, description="Skills the user has that the job requires"
+    )
+    missing_skills: list[str] = Field(
+        default_factory=list, description="Skills the job requires that the user lacks"
+    )
+    match_reason: str = Field(
+        default="", description="1-2 sentences; name which blocker triggered if score is 0"
+    )
+    recommendation: Literal["Strong Match", "Good Match", "Weak Match", "Skip"]
+
+
+class MatchesResponse(BaseModel):
+    """Submit match results for all provided job postings."""
+
+    matches: list[MatchItem] = Field(description="Exactly one entry per job posting provided")
 
 
 def _format_jobs(jobs: list[JobPosting]) -> str:
-    return "\n\n".join(format_job(j) for j in jobs) + "\n"
-
-
-def _parse(data: dict, jobs: list[JobPosting]) -> list[MatchResult]:
-    jobs_by_id = {j.id: j for j in jobs}
-    results = []
-    for item in data.get("matches", []):
-        job_id = str(item.get("job_id", ""))
-        job = jobs_by_id.get(job_id)
-        if not job:
-            continue
-        results.append(
-            MatchResult(
-                job=job,
-                score=float(item.get("score", 0.0)),
-                matching_skills=item.get("matching_skills", []),
-                missing_skills=item.get("missing_skills", []),
-                match_reason=item.get("match_reason", ""),
-                recommendation=item.get("recommendation", "Skip"),
-            )
+    return (
+        "\n\n".join(
+            format_job(job, description_chars=settings.matcher_description_chars) for job in jobs
         )
-    return results
+        + "\n"
+    )
+
+
+def _to_match_results(response: MatchesResponse, jobs: list[JobPosting]) -> list[MatchResult]:
+    """Validate batch coverage before joining response fields to original jobs."""
+    jobs_by_id = {job.id: job for job in jobs}
+    counts = Counter(item.job_id for item in response.matches)
+    missing = sorted(jobs_by_id.keys() - counts.keys())
+    unknown = sorted(counts.keys() - jobs_by_id.keys())
+    duplicates = sorted(job_id for job_id, count in counts.items() if count > 1)
+    if missing or unknown or duplicates:
+        raise ValueError(
+            f"Matcher response does not cover the batch exactly once: "
+            f"missing={missing}, unknown={unknown}, duplicates={duplicates}"
+        )
+    return [
+        MatchResult(
+            job=jobs_by_id[item.job_id],
+            **item.model_dump(exclude={"job_id"}),
+        )
+        for item in response.matches
+    ]
 
 
 def run(jobs: list[JobPosting], profile_md: str) -> list[MatchResult]:
     if not jobs:
         logger.warning("matcher_no_jobs")
         return []
+
+    # A one-result-per-ID contract requires unique IDs in the supplied jobs.
+    counts = Counter(job.id for job in jobs)
+    duplicates = sorted(job_id for job_id, count in counts.items() if count > 1)
+    if duplicates:
+        raise ValueError(f"Matcher input contains duplicate job IDs: {duplicates}")
 
     # Deterministic pre-filter: hard-skip jobs whose description requires a discard
     # keyword as a stated requirement, before spending tokens scoring them.
@@ -186,19 +175,29 @@ def run(jobs: list[JobPosting], profile_md: str) -> list[MatchResult]:
         else:
             to_score.append(job)
 
+    # Build the model only when some jobs need scoring, and reuse it across batches.
+    if to_score:
+        model = create_chat_model(
+            settings.matcher_model,
+            max_tokens=4096,
+            stage="matcher",
+            tool_name=MatchesResponse.__name__,
+        )
+        structured_model = model.with_structured_output(
+            MatchesResponse, method="function_calling", include_raw=True
+        )
+        chain = _PROMPT | structured_model
+
     for i in range(0, len(to_score), settings.matcher_batch_size):
         batch = to_score[i : i + settings.matcher_batch_size]
-        user_prompt = f"## User Profile\n{profile_md}\n\n## Job Postings\n{_format_jobs(batch)}"
-        data = llm.complete_json(
-            system=_SYSTEM,
-            user=user_prompt,
-            model=settings.matcher_model,
-            tool_name=_TOOL_NAME,
-            input_schema=_INPUT_SCHEMA,
-            tool_description="Submit match results for all provided job postings.",
-            max_tokens=4096,
-        )
-        results.extend(_parse(data, batch))
+        response = chain.invoke({"profile": profile_md, "jobs": _format_jobs(batch)})
+        # include_raw retains parsing failures for inspection; propagate them here.
+        if response["parsing_error"] is not None:
+            raise response["parsing_error"]
+        parsed = response["parsed"]
+        if not isinstance(parsed, MatchesResponse):
+            raise ValueError("Matcher model did not return the structured response")
+        results.extend(_to_match_results(parsed, batch))
         logger.info(
             "matcher_batch_done", batch=i // settings.matcher_batch_size + 1, batch_size=len(batch)
         )

@@ -1,9 +1,14 @@
 """Skills Gap Agent — identifies and categorises missing skills across all matched jobs."""
 
+from typing import Literal
+
+from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field
+
+from agents.model_client import create_chat_model
 from agents.models import MatchResult, SkillGap
 from config.logging import get_logger
 from config.settings import settings
-from llm import anthropic as llm
 
 logger = get_logger(__name__)
 
@@ -17,35 +22,31 @@ Priority rules:
 - "Medium": appears in 10–29% of jobs
 - "Low": appears in <10% of jobs
 
-Return the analysis by calling the `submit_skill_gaps` tool.\
+Return the analysis using the provided structured response schema.\
 """
 
-_TOOL_NAME = "submit_skill_gaps"
-_INPUT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "gaps": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "skill": {"type": "string", "description": "Exact skill name"},
-                    "category": {"type": "string"},
-                    "frequency": {
-                        "type": "integer",
-                        "description": "Count of jobs that mention this skill",
-                    },
-                    "priority": {
-                        "type": "string",
-                        "enum": ["High", "Medium", "Low"],
-                    },
-                },
-                "required": ["skill"],
-            },
-        }
-    },
-    "required": ["gaps"],
-}
+
+_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", _SYSTEM),
+        ("human", "{results}"),
+    ]
+)
+
+
+class SkillGapItem(BaseModel):
+    """Model response contract; defaults preserve the previous parser's behavior."""
+
+    skill: str = Field(description="Exact skill name")
+    category: str = "Other"
+    frequency: int = Field(default=1, description="Count of jobs that mention this skill")
+    priority: Literal["High", "Medium", "Low"] = "Low"
+
+
+class SkillsGapResponse(BaseModel):
+    """Submit the categorised skill gap analysis."""
+
+    gaps: list[SkillGapItem] = Field(description="Distinct missing skills across matched jobs")
 
 
 def _format_results(results: list[MatchResult]) -> str:
@@ -59,18 +60,6 @@ def _format_results(results: list[MatchResult]) -> str:
     return "\n".join(lines)
 
 
-def _parse(data: dict) -> list[SkillGap]:
-    return [
-        SkillGap(
-            skill=item["skill"],
-            category=item.get("category", "Other"),
-            frequency=int(item.get("frequency", 1)),
-            priority=item.get("priority", "Low"),
-        )
-        for item in data.get("gaps", [])
-    ]
-
-
 def run(results: list[MatchResult]) -> list[SkillGap]:
     if not results:
         logger.warning("skills_gap_no_results")
@@ -81,16 +70,27 @@ def run(results: list[MatchResult]) -> list[SkillGap]:
         logger.info("skills_gap_no_missing_skills")
         return []
 
-    data = llm.complete_json(
-        system=_SYSTEM,
-        user=_format_results(results),
-        model=settings.skills_gap_model,
-        tool_name=_TOOL_NAME,
-        input_schema=_INPUT_SCHEMA,
-        tool_description="Submit the categorised skill gap analysis.",
+    model = create_chat_model(
+        settings.skills_gap_model,
         max_tokens=2048,
+        stage="skills_gap",
+        tool_name=SkillsGapResponse.__name__,
     )
-    gaps = _parse(data)
+    # LangChain derives the tool schema, requests the response, and parses it into
+    # Pydantic objects. Raw metadata is retained for our existing execution trace.
+    structured_model = model.with_structured_output(
+        SkillsGapResponse, method="function_calling", include_raw=True
+    )
+    chain = _PROMPT | structured_model
+    response = chain.invoke({"results": _format_results(results)})
+    # With include_raw=True, LangChain returns parsing errors instead of raising
+    # them. Propagate them so invalid output cannot look like an empty analysis.
+    if response["parsing_error"] is not None:
+        raise response["parsing_error"]
+    parsed = response["parsed"]
+    if not isinstance(parsed, SkillsGapResponse):
+        raise ValueError("Skills-gap model did not return the structured response")
+    gaps = [SkillGap(**item.model_dump()) for item in parsed.gaps]
     logger.info(
         "skills_gap_complete",
         total_gaps=len(gaps),

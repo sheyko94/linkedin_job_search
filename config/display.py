@@ -7,6 +7,19 @@ from agents.models import SearchSession
 console = Console()
 
 
+def stage_label(node: str) -> str:
+    """Translate graph node names into terminal progress labels."""
+    return {
+        "load_inputs": "Loading profile and search criteria",
+        "search": "Searching LinkedIn and fetching job descriptions",
+        "deduplicate": "Removing jobs already found",
+        "match": "Matching jobs against your profile",
+        "refine": "Refining search parameters",
+        "analyze_gaps": "Analyzing missing skills",
+        "persist": "Saving reports",
+    }.get(node, node.replace("_", " ").capitalize())
+
+
 def _score_color(score: float) -> str:
     if score >= 0.75:
         return "green"
