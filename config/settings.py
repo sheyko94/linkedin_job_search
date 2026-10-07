@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     max_refinement_iterations: int = Field(default=1, gt=0)
     orchestrator_timeout: float = Field(default=600.0, gt=0, allow_inf_nan=False)
 
-    # Locations to search — one scrape_jobs call per entry. Comma-separated.
+    # Starting locations, comma-separated. Refinement may propose additional regions.
     search_locations: str = "Remote"
 
     # Search filters (URL-level). Configurable — the profile/criteria drive these.
@@ -64,9 +64,7 @@ class Settings(BaseSettings):
     discard_keywords_path: str = ".input/discard_keywords.txt"
     search_params_path: str = ".state/search_params.md"
     cookies_path: str = ".state/cookies.json"
-    output_jobs_path: str = ".output/matched_jobs.md"
-    output_gaps_path: str = ".output/skills_gap.md"
-    trace_path: str = ".output/execution_trace.log"
+    output_dir: str = ".output"
 
 
 settings = Settings()

@@ -2,13 +2,10 @@ import sys
 
 from agents.coordinator import run
 from config.display import console, display, stage_label
-from config.logging import configure
 from tools.browser_session import LinkedInAuthenticationError
 
 
 def main() -> None:
-    configure()
-
     with console.status("[bold blue]Starting LinkedIn job search…[/bold blue]") as status:
 
         def show_stage(node: str) -> None:

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -42,6 +44,7 @@ def _rec_label(rec: str) -> str:
 
 
 def display(session: SearchSession) -> None:
+    output_dir = Path(session.output_dir)
     # Summary panel
     console.print(
         Panel(
@@ -90,10 +93,10 @@ def display(session: SearchSession) -> None:
         if skipped:
             console.print(
                 f"[dim]{skipped} job(s) skipped (hard-blocker rules). "
-                f"See the 'Skipped' section in .output/matched_jobs.md for reasons.[/dim]"
+                f"See the 'Skipped' section in {output_dir / 'matched_jobs.md'} for reasons.[/dim]"
             )
 
-    console.print("[dim]Results saved to .output/matched_jobs.md and .output/skills_gap.md[/dim]")
+    console.print(f"Results saved in {output_dir}", style="dim", markup=False)
 
     if session.search_refinements:
         console.print(

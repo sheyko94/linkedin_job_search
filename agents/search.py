@@ -15,12 +15,14 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command
 
 from agents.model_client import create_chat_model
-from agents.models import JobPosting
+from agents.models import JobPosting, SearchGuidance
 from config.logging import get_logger, trace_payload
 from config.reader import load_discard_keywords
+from config.search_guidance import effective_locations
 from config.settings import settings
 from tools import linkedin
 from tools.browser_session import BrowserSession, LinkedInAuthenticationError
+from tools.detail_policy import detail_skip_reason
 from tools.search_context import SearchContext
 from tools.search_tools import SEARCH_TOOLS, apply_job_details
 
@@ -41,7 +43,9 @@ Strategy:
 1. Call scrape_jobs with the most relevant keyword combination from the parameters.
 2. If the parameters include multiple keyword groups or locations, call scrape_jobs \
 again with variations.
-3. Use get_job_details only for jobs where the card info is insufficient to evaluate the role.
+3. Use get_job_details only for collected jobs worth evaluating now. Do not repeatedly fetch \
+known descriptions or request details for titles matching discard keywords. Final enrichment \
+will fetch missing descriptions for eligible new jobs; you do not need to fetch every job.
 4. When you have collected enough jobs (aim for the requested max), stop and summarise \
 what you found.
 
@@ -57,14 +61,31 @@ _PROMPT = ChatPromptTemplate.from_messages(
 )
 
 
-def _format_search_params(search_params_md: str, criteria_md: str) -> str:
-    locations = ", ".join(settings.search_locations_list)
+def _format_search_params(
+    search_params_md: str, criteria_md: str, guidance: SearchGuidance | None = None
+) -> str:
+    locations = effective_locations(guidance, settings.search_locations_list)
+    if guidance is not None:
+        parameters = (
+            "## Validated Search Guidance (use these fields directly)\n"
+            f"{guidance.model_dump_json(indent=2)}\n\n"
+            "Try keyword_groups in priority order and use experience_levels for listing calls.\n"
+            "An empty experience_levels list means no experience filter.\n"
+        )
+    else:
+        parameters = f"## Current Search Parameters\n{search_params_md}\n\n"
+    discard_keywords = ", ".join(sorted(load_discard_keywords()))
     return (
-        f"## Current Search Parameters\n{search_params_md}\n\n"
-        f"## Base Search Criteria\n{criteria_md}\n\n"
-        f"Locations to search (call scrape_jobs once per location): {locations}\n"
+        parameters + f"## Base Search Criteria\n{criteria_md}\n\n"
+        f"Effective search locations in priority order: {', '.join(locations)}\n"
+        "Try these locations in order as the listing budget permits. Refined regions expand\n"
+        "discovery scope; they do not relax candidate eligibility in the base criteria.\n"
+        f"Fixed date filter: {settings.search_date_posted}\n"
+        f"Fixed work modes: {', '.join(settings.search_work_modes_list) or '(no filter)'}\n"
+        f"Fixed job types: {', '.join(settings.search_job_types_list) or '(no filter)'}\n"
         f"Max jobs per search call: {settings.max_jobs_per_search}\n"
         f"Max total jobs to collect across all calls: {settings.max_total_jobs}\n"
+        f"Title discard keywords (skip detail requests): {discard_keywords}\n"
         "Stop calling scrape_jobs once you reach the total limit.\n"
         "Use the tools to search LinkedIn and collect job listings now."
     )
@@ -153,7 +174,9 @@ def build_search_graph() -> CompiledStateGraph:
         else:
             stop_reason = "model_finished"
         jobs = {job_id: job.model_copy(deep=True) for job_id, job in state["jobs_by_id"].items()}
-        runtime.context.browser.call(_enrich_jobs, jobs)
+        runtime.context.browser.call(
+            _enrich_jobs, jobs, runtime.context.discard_keywords, runtime.context.previous_job_ids
+        )
         return {"jobs_by_id": jobs, "stop_reason": stop_reason}
 
     graph = StateGraph(SearchState, context_schema=SearchContext)
@@ -171,9 +194,11 @@ def run(
     search_params_md: str,
     criteria_md: str,
     refinement_hint: str = "",
+    guidance: SearchGuidance | None = None,
+    previous_job_ids: frozenset[str] = frozenset(),
 ) -> list[JobPosting]:
     """Open runtime browser resources, invoke the subgraph, return actual scraped jobs."""
-    user_prompt = _format_search_params(search_params_md, criteria_md)
+    user_prompt = _format_search_params(search_params_md, criteria_md, guidance)
     if refinement_hint:
         user_prompt += f"\n\nRefinement guidance from prior session:\n{refinement_hint}"
     initial_state: SearchState = {
@@ -193,7 +218,11 @@ def run(
         state = build_search_graph().invoke(
             initial_state,
             config={"recursion_limit": _MAX_MODEL_CALLS * 2 + 5},
-            context=SearchContext(browser=browser),
+            context=SearchContext(
+                browser=browser,
+                discard_keywords=frozenset(load_discard_keywords()),
+                previous_job_ids=previous_job_ids,
+            ),
         )
     result = list(state["jobs_by_id"].values())
     logger.info(
@@ -210,20 +239,21 @@ def run(
     return result
 
 
-def _is_obvious_discard(job: JobPosting, keywords: set[str]) -> bool:
-    title_lower = job.title.lower()
-    return any(kw in title_lower for kw in keywords)
-
-
-def _enrich_jobs(page: Any, jobs_by_id: dict[str, JobPosting]) -> None:
-    keywords = load_discard_keywords()
+def _enrich_jobs(
+    page: Any,
+    jobs_by_id: dict[str, JobPosting],
+    discard_keywords: frozenset[str],
+    previous_job_ids: frozenset[str],
+) -> None:
     # A populated description marks a successful prior tool fetch. Failed or
     # incomplete fetches leave it empty, so those jobs remain eligible for retry.
-    to_fetch = [
-        job
-        for job in jobs_by_id.values()
-        if not job.description.strip() and not _is_obvious_discard(job, keywords)
-    ]
+    to_fetch = []
+    for job in jobs_by_id.values():
+        reason = detail_skip_reason(job, discard_keywords, previous_job_ids)
+        if reason is None:
+            to_fetch.append(job)
+        else:
+            logger.info("search_detail_skipped", job_id=job.id, reason=reason)
     logger.info("search_enriching_jobs", total=len(to_fetch))
     for job in to_fetch:
         try:

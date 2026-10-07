@@ -67,11 +67,16 @@ not freelance, not ZZP, \
    not contractor, not interim) → Skip. \
    Note: in the Netherlands, ZZP and contractor are equivalent to freelance — treat \
 them as acceptable.
+   LinkedIn's full-time label describes working hours; it does not prove permanent employment.
+   Read the engagement evidence and description. CONTRACT: Contractor assignment with \
+COMMITMENT: Full-time is an acceptable contract. Do not trigger this blocker solely \
+from full-time metadata. If explicit engagement statements conflict, explain the ambiguity \
+and assess the role's actual terms rather than assuming permanent employment.
 3. The posting restricts candidates to a specific location that is not the Netherlands → Skip. \
    Only continue if the role is based in the Netherlands, or the posting has no \
 geographic restriction \
    on where the candidate must live (true worldwide remote).
-5. Role is primarily frontend, mobile, or QA → Skip
+4. Role is primarily frontend, mobile, or QA → Skip
 
 Produce one result object for every job you were given, including skipped jobs. \
 Return the full list using the provided structured response schema.\

@@ -3,7 +3,8 @@
 from langchain_core.prompts import ChatPromptTemplate
 
 from agents.model_client import create_chat_model
-from agents.models import SearchSession
+from agents.models import SearchGuidance, SearchSession
+from config.search_guidance import normalize_locations
 from config.settings import settings
 
 _SYSTEM = """\
@@ -15,19 +16,19 @@ Analyse:
 - Which jobs scored highly and what they have in common
 - Which jobs scored poorly and why
 - What keywords and experience-level filters might yield better results
-- Which configured locations should be prioritised
+- Which locations should be prioritised or added to broaden useful job discovery
 
 The effective settings in the session context are authoritative. Do not propose \
-changing the date filter, work modes, job types, or configured location list. \
-Adjust keywords and experience levels; location advice must use configured locations only.
+changing the date filter, work modes, or job types. Configured locations are starting \
+locations, not an allowlist. You may propose additional search regions such as Europe \
+or EMEA when supported by the results and profile. Rank all proposed locations in \
+priority order and explain any additions in your reasoning. Broader search regions \
+do not change the user's geographic eligibility or preferences.
 
-Output a Markdown document for .state/search_params.md with:
-1. A summary of insights from this session
-2. Updated keywords, experience levels, and priorities among configured locations
-3. What changed from the previous params and why
-
-Be specific and actionable. The next search agent uses this document as guidance; \
-the fixed settings still control the browser filters.\
+Return SearchGuidance using the supplied structured response schema. Include actionable \
+keyword groups in priority order, supported experience levels (or an empty list for no \
+filter), location priorities including useful new regions, session insights, and the reasoning for \
+changes. The fixed settings still control the browser filters.\
 """
 
 
@@ -80,8 +81,11 @@ def _format_session(session: SearchSession, prior_params: str, profile_md: str) 
         f"Date filter: {settings.search_date_posted}",
         f"Work modes: {', '.join(settings.search_work_modes_list) or '(no filter)'}",
         f"Job types: {', '.join(settings.search_job_types_list) or '(no filter)'}",
-        f"Configured locations: {', '.join(settings.search_locations_list) or '(none)'}",
-        "Only keywords, experience levels, and priorities among these locations are adjustable.",
+        "",
+        "## Starting Search Locations (expandable)",
+        ", ".join(settings.search_locations_list) or "(none)",
+        "Keywords, experience levels, and search locations are adjustable.",
+        "New search regions do not change where the user can legally or practically take a role.",
         "",
         "## Current Search Parameters",
         prior_params,
@@ -93,12 +97,21 @@ def _format_session(session: SearchSession, prior_params: str, profile_md: str) 
     return "\n".join(lines)
 
 
-def run(session: SearchSession, prior_params: str, profile_md: str) -> str:
-    """Return Markdown for the next search without saving or changing the session."""
-    model = create_chat_model(settings.orchestrator_model, max_tokens=2048, stage="refinement")
-    chain = _PROMPT | model
+def run(session: SearchSession, prior_params: str, profile_md: str) -> SearchGuidance:
+    """Return validated advice without saving files or changing the session."""
+    model = create_chat_model(
+        settings.orchestrator_model,
+        max_tokens=2048,
+        stage="refinement",
+        tool_name=SearchGuidance.__name__,
+    )
+    chain = _PROMPT | model.with_structured_output(
+        SearchGuidance, method="function_calling", include_raw=True
+    )
     response = chain.invoke({"session_context": _format_session(session, prior_params, profile_md)})
-    markdown = response.text
-    if not markdown.strip():
-        raise ValueError("Refinement model returned no search parameters")
-    return markdown
+    if response["parsing_error"] is not None:
+        raise response["parsing_error"]
+    guidance = response["parsed"]
+    if not isinstance(guidance, SearchGuidance):
+        raise ValueError("Refinement model did not return structured search guidance")
+    return normalize_locations(guidance)

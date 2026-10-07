@@ -1,19 +1,19 @@
 """Write state and output files."""
 
+import json
 import re
-from datetime import datetime
 from pathlib import Path
 
 from agents.models import MatchResult, SearchSession, SkillGap
 from config.job_formatting import format_job
-from config.reader import read_or_empty
 from config.settings import settings
 
 
-def _write(path: str, content: str) -> None:
+def _write(path: str | Path, content: str, *, overwrite: bool = True) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8")
+    with p.open("w" if overwrite else "x", encoding="utf-8") as file:
+        file.write(content)
 
 
 def save_search_params(content: str) -> None:
@@ -40,6 +40,7 @@ def save_matched_jobs(session: SearchSession) -> None:
 
     for snapshot in session.search_params_used.get("iterations", []):
         effective = snapshot["effective_settings"]
+        starting_locations = effective.get("starting_locations", effective["locations"])
         lines += [
             "<details><summary><strong>Search Inputs and Effective Filters</strong> "
             f"— iteration {snapshot['iteration']}</summary>",
@@ -47,7 +48,9 @@ def save_matched_jobs(session: SearchSession) -> None:
             "These are input guidance and effective settings, not exact executed queries. "
             "See the execution trace for actual tool calls.",
             "",
-            f"**Configured locations:** {', '.join(effective['locations']) or '(none)'}  ",
+            f"**Configured starting locations:** {', '.join(starting_locations) or '(none)'}  ",
+            "**Effective search location order:** "
+            f"{', '.join(effective['locations']) or '(none)'}  ",
             f"**Date filter:** {effective['date_posted']}  ",
             f"**Work modes:** {', '.join(effective['work_modes']) or '(no filter)'}  ",
             f"**Job types:** {', '.join(effective['job_types']) or '(no filter)'}  ",
@@ -58,6 +61,9 @@ def save_matched_jobs(session: SearchSession) -> None:
             "",
         ]
         lines += _guidance_block(snapshot["search_params_md"])
+        if snapshot.get("search_guidance") is not None:
+            lines += ["### Validated Guidance Used by Search", ""]
+            lines += _guidance_block(json.dumps(snapshot["search_guidance"], indent=2))
         lines += ["### Base Search Criteria", ""]
         lines += _guidance_block(snapshot["criteria_md"])
         if snapshot["refinement_hint"]:
@@ -110,20 +116,19 @@ def save_matched_jobs(session: SearchSession) -> None:
                 "",
             ]
 
-    _write(settings.output_jobs_path, "\n".join(lines))
+    _write(Path(session.output_dir) / "matched_jobs.md", "\n".join(lines), overwrite=False)
 
 
-def save_skills_gap(gaps: list[SkillGap], session_id: str) -> None:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+def save_skills_gap(session: SearchSession) -> None:
     lines = [
-        f"# Skills Gap Analysis — {now}",
+        f"# Skills Gap Analysis — {session.timestamp}",
         "",
-        f"_Session: `{session_id}`_",
+        f"_Session: `{session.session_id}`_",
         "",
     ]
 
     by_category: dict[str, list[SkillGap]] = {}
-    for g in gaps:
+    for g in session.skill_gaps:
         by_category.setdefault(g.category, []).append(g)
 
     priority_order = {"High": 0, "Medium": 1, "Low": 2}
@@ -139,8 +144,4 @@ def save_skills_gap(gaps: list[SkillGap], session_id: str) -> None:
             lines.append(f"| {g.skill} | {g.frequency} jobs | {g.priority} |")
         lines += [""]
 
-    existing = read_or_empty(settings.output_gaps_path)
-    if existing and existing.strip():
-        lines += ["---", "", "## Previous Sessions", "", existing]
-
-    _write(settings.output_gaps_path, "\n".join(lines))
+    _write(Path(session.output_dir) / "skills_gap.md", "\n".join(lines), overwrite=False)

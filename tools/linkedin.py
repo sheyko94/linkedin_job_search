@@ -348,7 +348,7 @@ _MODES = ("remote", "hybrid", "on-site")
 _TYPES = ("full-time", "part-time", "contract", "temporary", "internship")
 
 
-def _job_id_from_url(job_url: str) -> str:
+def job_id_from_url(job_url: str) -> str:
     m = _JOB_ID_RE.search(job_url)
     if not m:
         return ""
@@ -374,7 +374,7 @@ def get_job_details(page: Any, job_url: str) -> dict:
     empty = dict.fromkeys(
         ("description", "salary_range", "work_mode", "job_type", "posted_date"), ""
     )
-    job_id = _job_id_from_url(job_url)
+    job_id = job_id_from_url(job_url)
     if not job_id:
         logger.warning("linkedin_job_id_unparsed", url=job_url)
         return empty

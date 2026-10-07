@@ -1,6 +1,7 @@
 """Shared job context for model prompts and report provenance."""
 
 from agents.models import JobPosting
+from config.employment import engagement_evidence
 
 
 def format_job(job: JobPosting, *, description_chars: int) -> str:
@@ -14,7 +15,15 @@ def format_job(job: JobPosting, *, description_chars: int) -> str:
     if job.work_mode:
         lines.append(f"Work mode: {job.work_mode}")
     if job.job_type:
-        lines.append(f"Job type: {job.job_type}")
+        lines.append(f"LinkedIn job type / commitment: {job.job_type}")
+    # Also cover jobs created before engagement fields were introduced.
+    engagement, evidence = job.engagement_type, job.engagement_evidence
+    if not evidence:
+        engagement, evidence = engagement_evidence(job.description, job.job_type)
+    if engagement:
+        lines.append(f"Engagement type: {engagement}")
+    if evidence:
+        lines.append(f"Engagement evidence: {evidence}")
     if job.salary_range:
         lines.append(f"Salary: {job.salary_range}")
     if job.description:

@@ -4,6 +4,7 @@ import time
 import uuid
 from collections.abc import Callable
 from datetime import datetime
+from pathlib import Path
 from typing import Literal, TypedDict
 
 import structlog.contextvars
@@ -11,9 +12,15 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from agents import matcher, refinement, search, skills_gap
-from agents.models import JobPosting, MatchResult, SearchSession, SkillGap
+from agents.models import JobPosting, MatchResult, SearchGuidance, SearchSession, SkillGap
 from config import reader, writer
-from config.logging import get_logger
+from config.logging import configure, get_logger
+from config.search_guidance import (
+    effective_locations,
+    normalize_locations,
+    parse_markdown,
+    render_markdown,
+)
 from config.settings import settings
 
 logger = get_logger(__name__)
@@ -28,9 +35,11 @@ class PipelineState(TypedDict):
 
     session_id: str
     timestamp: str
+    output_dir: str
     profile_md: str
     criteria_md: str
     search_params_md: str
+    search_guidance: SearchGuidance | None
     search_params_used: dict
     iteration: int  # Number of searches started, initially zero.
     deadline: float  # Monotonic time; only valid within this process.
@@ -46,6 +55,7 @@ def _to_session(state: PipelineState) -> SearchSession:
     return SearchSession(
         session_id=state["session_id"],
         timestamp=state["timestamp"],
+        output_dir=state["output_dir"],
         search_params_used=state["search_params_used"],
         jobs_found=state["jobs_found"],
         matched_jobs=state["matched_jobs"],
@@ -64,10 +74,14 @@ def _load_inputs(state: PipelineState) -> dict:
         )
         writer.save_search_params(search_params_md)
         logger.info("coordinator_params_initialised_from_criteria")
+    guidance = parse_markdown(search_params_md)
+    if guidance is not None:
+        guidance = normalize_locations(guidance)
     return {
         "profile_md": profile_md,
         "criteria_md": criteria_md,
         "search_params_md": search_params_md,
+        "search_guidance": guidance,
     }
 
 
@@ -94,8 +108,14 @@ def _search_jobs(state: PipelineState) -> dict:
         "search_params_md": state["search_params_md"],
         "criteria_md": state["criteria_md"],
         "refinement_hint": refinement_hint,
+        "search_guidance": state["search_guidance"].model_dump()
+        if state["search_guidance"] is not None
+        else None,
         "effective_settings": {
-            "locations": settings.search_locations_list,
+            "starting_locations": settings.search_locations_list,
+            "locations": effective_locations(
+                state["search_guidance"], settings.search_locations_list
+            ),
             "date_posted": settings.search_date_posted,
             "work_modes": settings.search_work_modes_list,
             "job_types": settings.search_job_types_list,
@@ -107,6 +127,8 @@ def _search_jobs(state: PipelineState) -> dict:
         search_params_md=state["search_params_md"],
         criteria_md=state["criteria_md"],
         refinement_hint=refinement_hint,
+        guidance=state["search_guidance"],
+        previous_job_ids=frozenset(job.id for job in state["jobs_found"]),
     )
     return {
         "new_jobs": new_jobs,
@@ -145,16 +167,18 @@ def _route_after_matching(state: PipelineState) -> Literal["refine", "analyze_ga
 
 
 def _refine_params(state: PipelineState) -> dict:
-    refined_params = refinement.run(
+    guidance = refinement.run(
         session=_to_session(state),
         prior_params=state["search_params_md"],
         profile_md=state["profile_md"],
     )
+    refined_params = render_markdown(guidance)
     writer.save_search_params(refined_params)
     logger.info("coordinator_params_refined")
     hint = f"Iteration {state['iteration']} refinement applied — see .state/search_params.md"
     return {
         "search_params_md": refined_params,
+        "search_guidance": guidance,
         "search_refinements": state["search_refinements"] + [hint],
     }
 
@@ -168,7 +192,7 @@ def _analyze_gaps(state: PipelineState) -> dict:
 def _persist_reports(state: PipelineState) -> dict:
     session = _to_session(state)
     writer.save_matched_jobs(session)
-    writer.save_skills_gap(session.skill_gaps, session.session_id)
+    writer.save_skills_gap(session)
     return {}
 
 
@@ -198,15 +222,23 @@ def build_graph() -> CompiledStateGraph:
 def run(on_stage: Callable[[str], None] | None = None) -> SearchSession:
     """Run the graph, optionally reporting node starts without exposing state."""
     session_id = str(uuid.uuid4())[:8]
+    started_at = datetime.now().astimezone()
+    output_dir = Path(settings.output_dir) / (
+        f"{started_at.strftime('%Y-%m-%d_%H-%M-%S-%f')}_{session_id}"
+    )
+    output_dir.mkdir(parents=True, exist_ok=False)
+    configure(output_dir / "execution_trace.log", started_at)
     structlog.contextvars.bind_contextvars(session_id=session_id)
     start = time.monotonic()
-    logger.info("coordinator_start", session_id=session_id)
+    logger.info("coordinator_start", session_id=session_id, output_dir=str(output_dir))
     initial_state: PipelineState = {
         "session_id": session_id,
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "timestamp": started_at.isoformat(timespec="seconds"),
+        "output_dir": str(output_dir),
         "profile_md": "",
         "criteria_md": "",
         "search_params_md": "",
+        "search_guidance": None,
         "search_params_used": {"iterations": []},
         "iteration": 0,
         "deadline": start + settings.orchestrator_timeout,

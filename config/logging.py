@@ -1,22 +1,22 @@
 """Logging configuration.
 
 Every log event is rendered as JSON to stdout AND appended, in a compact
-human-readable form, to a per-run trace file (`settings.trace_path`). The trace
-file is truncated at the start of each run by `configure()`, so after any run it
+human-readable form, to a trace file in the timestamped run directory. A new trace
+file is created at the start of each run by `configure()`, so after any run it
 contains the full behind-the-scenes trace of exactly what happened: every browser
 navigation, DOM extraction count, LLM call, tool invocation, and timing.
 """
 
 import json
-from datetime import datetime, timezone
+from contextvars import ContextVar
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import structlog
 import structlog.contextvars
 
-from config.settings import settings
-
+_TRACE_PATH: ContextVar[Path | None] = ContextVar("trace_path", default=None)
 # Verbatim tool payloads (LLM tool inputs/outputs) are capped to this many chars in
 # the trace file so a single huge job description can't bloat the log unboundedly.
 _PAYLOAD_MAX_CHARS = 20000
@@ -32,8 +32,11 @@ def _trace_file_processor(_logger: Any, _method: str, event_dict: dict) -> dict:
     event = str(event_dict.get("event", ""))
     extras = " ".join(f"{k}={event_dict[k]}" for k in event_dict if k not in _TRACE_HEADER_KEYS)
     line = f"{ts}  {level:<7} {event:<34} {extras}".rstrip() + "\n"
+    trace = _TRACE_PATH.get()
+    if trace is None:
+        return event_dict
     try:
-        with open(settings.trace_path, "a", encoding="utf-8") as fh:
+        with trace.open("a", encoding="utf-8") as fh:
             fh.write(line)
     except Exception:
         # Never let trace-file I/O break the pipeline.
@@ -47,6 +50,9 @@ def trace_payload(label: str, data: Any) -> None:
     `data` may be a dict/list (pretty-printed as JSON) or a string (pretty-printed if it
     parses as JSON, otherwise written as-is). Capped to `_PAYLOAD_MAX_CHARS`.
     """
+    trace = _TRACE_PATH.get()
+    if trace is None:
+        return
     try:
         if isinstance(data, (dict, list)):
             body = json.dumps(data, ensure_ascii=False, indent=2)
@@ -61,22 +67,22 @@ def trace_payload(label: str, data: Any) -> None:
             dropped = len(body) - _PAYLOAD_MAX_CHARS
             body = body[:_PAYLOAD_MAX_CHARS] + f"\n… [truncated {dropped} chars]"
         block = f"\n    ──── RAW: {label} ────\n{body}\n    ──── END RAW ────\n\n"
-        with open(settings.trace_path, "a", encoding="utf-8") as fh:
+        with trace.open("a", encoding="utf-8") as fh:
             fh.write(block)
     except Exception:
         # Never let trace-file I/O break the pipeline.
         pass
 
 
-def configure() -> None:
-    # Truncate the trace file at the start of every run and write a header.
-    trace = Path(settings.trace_path)
+def configure(trace: Path, started_at: datetime) -> None:
+    """Create this run's trace and propagate its path with graph/worker context."""
     trace.parent.mkdir(parents=True, exist_ok=True)
-    trace.write_text(
-        f"# Execution trace — run started {datetime.now(timezone.utc).isoformat()}\n"
-        f"# Format: <timestamp>  <LEVEL>  <event>  <key=value ...>\n\n",
-        encoding="utf-8",
-    )
+    with trace.open("x", encoding="utf-8") as file:
+        file.write(
+            f"# Execution trace — run started {started_at.isoformat()}\n"
+            f"# Format: <timestamp>  <LEVEL>  <event>  <key=value ...>\n\n"
+        )
+    _TRACE_PATH.set(trace)
 
     structlog.configure(
         processors=[
