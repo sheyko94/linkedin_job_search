@@ -67,8 +67,8 @@ updates, including remaining budget.
 
 - **`SearchState`:** message history, jobs keyed by ID, listing/model counters,
   token totals, and stop reason. `add_messages` merges conversation updates.
-- **`SearchContext`:** supplies the live `BrowserSession`, title-discard keywords,
-  and previously processed job IDs at invocation.
+- **`SearchContext`:** supplies the live `BrowserSession` and previously processed
+  job IDs at invocation.
   `ToolRuntime` exposes it to tools without adding it to their public argument schemas.
 - **Browser ownership:** [BrowserSession](../tools/browser_session.py) runs sync
   Playwright on one dedicated worker thread, including setup, navigation, and cleanup.
@@ -77,8 +77,9 @@ updates, including remaining budget.
   check this before navigation. Overlapping queries can yield fewer jobs than the cap.
 - **Model budget:** at most `15` model calls. Tool calls in the final response still
   execute before routing to enrichment. Reaching a limit skips an extra summary call.
-- **Enrichment:** fetches details only for jobs with a blank description whose titles
-  do not contain a discard keyword and whose IDs were not processed in an earlier pass.
+- **Enrichment:** fetches details for jobs with a blank description whose IDs were not
+  processed in an earlier pass. Keyword-only title filtering is removed so full input
+  policy can be applied to ambiguous jobs.
   The explicit detail tool uses the same rule. Skipping a fetch keeps the job in the results.
   Individual enrichment failures are logged and processing continues. Nonblank
   detail fields are merged without clearing existing values.

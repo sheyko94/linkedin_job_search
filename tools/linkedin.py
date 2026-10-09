@@ -11,10 +11,17 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 
-from config.logging import get_logger
+from playwright.sync_api import Error as PlaywrightError
+
 from config.settings import settings
+from observability.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+class JobDetailError(RuntimeError):
+    """A job detail fetch failed or returned no usable description."""
+
 
 # ---------------------------------------------------------------------------
 # LinkedIn URL helpers
@@ -42,20 +49,10 @@ _WORK_MODE_CODES = {
     "hybrid": "3",
 }
 
-_EXP_LEVEL_CODES = {
-    "internship": "1",
-    "entry": "2",
-    "associate": "3",
-    "mid-senior": "4",
-    "director": "5",
-    "executive": "6",
-}
-
 
 def build_search_url(
     keywords: str,
     location: str,
-    experience_levels: list[str] | None = None,
 ) -> str:
     params = f"keywords={quote_plus(keywords)}&location={quote_plus(location)}"
     # Recency filter (f_TPR). Authoritative from settings — not LLM-controllable.
@@ -74,10 +71,6 @@ def build_search_url(
         codes = [_WORK_MODE_CODES[m] for m in modes if m in _WORK_MODE_CODES]
         if codes:
             params += f"&f_WT={'%2C'.join(codes)}"
-    if experience_levels:
-        codes = [_EXP_LEVEL_CODES[e] for e in experience_levels if e in _EXP_LEVEL_CODES]
-        if codes:
-            params += f"&f_E={'%2C'.join(codes)}"
     return f"https://www.linkedin.com/jobs/search/?{params}"
 
 
@@ -371,13 +364,9 @@ def get_job_details(page: Any, job_url: str) -> dict:
     Note: we load the job via the results-pane URL (currentJobId) because the standalone
     job page is unreliable, but the caller keeps `job.url` as the /jobs/view link.
     """
-    empty = dict.fromkeys(
-        ("description", "salary_range", "work_mode", "job_type", "posted_date"), ""
-    )
     job_id = job_id_from_url(job_url)
     if not job_id:
-        logger.warning("linkedin_job_id_unparsed", url=job_url)
-        return empty
+        raise JobDetailError(f"Cannot identify LinkedIn job from URL: {job_url}")
 
     pane_url = _PANE_URL.format(job_id=job_id)
     try:
@@ -385,7 +374,7 @@ def get_job_details(page: Any, job_url: str) -> dict:
         page.wait_for_load_state("domcontentloaded", timeout=15_000)
         try:
             page.wait_for_selector(", ".join(_DESC_SELECTORS), timeout=10_000)
-        except Exception:
+        except PlaywrightError:
             time.sleep(1)
 
         description = _first_text(page, _DESC_SELECTORS)
@@ -419,9 +408,6 @@ def get_job_details(page: Any, job_url: str) -> dict:
             if not job_type:
                 job_type = next((x for x in _TYPES if x in haystack), "")
 
-        if not description:
-            logger.warning("linkedin_job_detail_no_description", url=pane_url)
-
         return {
             "description": description[:8000],  # cap to avoid huge tokens
             "salary_range": salary,
@@ -429,6 +415,5 @@ def get_job_details(page: Any, job_url: str) -> dict:
             "job_type": job_type,
             "posted_date": posted_date,
         }
-    except Exception as e:
-        logger.warning("linkedin_job_detail_failed", url=pane_url, error=str(e))
-        return empty
+    except PlaywrightError as exc:
+        raise JobDetailError(f"LinkedIn detail navigation or extraction failed: {exc}") from exc

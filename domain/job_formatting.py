@@ -1,7 +1,7 @@
 """Shared job context for model prompts and report provenance."""
 
-from agents.models import JobPosting
-from config.employment import engagement_evidence
+from domain.employment import engagement_evidence
+from domain.models import JobPosting
 
 
 def format_job(job: JobPosting, *, description_chars: int) -> str:

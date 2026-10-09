@@ -1,3 +1,5 @@
+from math import ceil
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -5,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
-    anthropic_api_key: str
+    anthropic_api_key: str = ""
     orchestrator_model: str = "claude-haiku-4-5-20251001"
     search_model: str = "claude-haiku-4-5-20251001"
     matcher_model: str = "claude-haiku-4-5-20251001"
@@ -21,6 +23,7 @@ class Settings(BaseSettings):
     max_jobs_per_search: int = Field(default=20, gt=0)
     max_total_jobs: int = Field(default=25, gt=0)
     matcher_batch_size: int = Field(default=15, gt=0)
+    matcher_max_concurrency: int = Field(default=1, gt=0)
     job_detail_delay_ms: int = Field(default=4000, ge=0)
     # Description length shown to the matcher. Must be long enough to include the
     # requirements/qualifications block, which usually follows the role intro —
@@ -47,6 +50,10 @@ class Settings(BaseSettings):
     search_job_types: str = "contract,temporary,part-time"
 
     @property
+    def listing_call_limit(self) -> int:
+        return ceil(self.max_total_jobs / self.max_jobs_per_search)
+
+    @property
     def search_locations_list(self) -> list[str]:
         return [loc.strip() for loc in self.search_locations.split(",") if loc.strip()]
 
@@ -62,7 +69,8 @@ class Settings(BaseSettings):
     profile_path: str = ".input/profile.md"
     search_criteria_path: str = ".input/search_criteria.md"
     discard_keywords_path: str = ".input/discard_keywords.txt"
-    search_params_path: str = ".state/search_params.md"
+    search_guidance_view_path: str = ".state/search_params.md"
+    search_guidance_path: str = ".state/search_guidance.json"
     cookies_path: str = ".state/cookies.json"
     output_dir: str = ".output"
 

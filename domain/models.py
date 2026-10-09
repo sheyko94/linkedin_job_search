@@ -1,9 +1,8 @@
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 SearchText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-ExperienceLevel = Literal["entry", "associate", "mid-senior", "director"]
 
 
 class SearchGuidance(BaseModel):
@@ -15,9 +14,6 @@ class SearchGuidance(BaseModel):
         min_length=1,
         max_length=8,
         description="Search keyword combinations, highest priority first",
-    )
-    experience_levels: list[ExperienceLevel] = Field(
-        default_factory=list, description="Experience filters; empty means no experience filter"
     )
     location_priorities: list[SearchText] = Field(
         default_factory=list,
@@ -37,7 +33,6 @@ class JobPosting(BaseModel):
     engagement_evidence: str = ""
     work_mode: str = ""  # remote, hybrid, on-site
     description: str = ""
-    requirements: list[str] = Field(default_factory=list)
     url: str
     posted_date: str = ""
     salary_range: str = ""
@@ -62,12 +57,28 @@ class SkillGap(BaseModel):
     priority: str  # "High" | "Medium" | "Low"
 
 
+class SearchSnapshot(BaseModel):
+    """The guidance and execution settings supplied to one search pass."""
+
+    iteration: int
+    criteria_md: str
+    guidance: SearchGuidance | None
+    starting_locations: list[str]
+    locations: list[str]
+    date_posted: str
+    work_modes: list[str]
+    job_types: list[str]
+    max_jobs_per_search: int
+    max_total_jobs: int
+
+
 class SearchSession(BaseModel):
     session_id: str
     timestamp: str
     output_dir: str
-    search_params_used: dict
+    search_history: list[SearchSnapshot] = Field(default_factory=list)
     jobs_found: list[JobPosting] = Field(default_factory=list)
     matched_jobs: list[MatchResult] = Field(default_factory=list)
     skill_gaps: list[SkillGap] = Field(default_factory=list)
-    search_refinements: list[str] = Field(default_factory=list)
+    search_refinements: list[SearchGuidance] = Field(default_factory=list)
+    token_usage: dict[str, dict] = Field(default_factory=dict)

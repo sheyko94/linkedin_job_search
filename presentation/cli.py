@@ -4,9 +4,29 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from agents.models import SearchSession
+from domain.models import SearchSession
 
 console = Console()
+
+
+def progress_label(event: dict) -> str:
+    """Render only counts/status from explicit graph events, never model payloads."""
+    match event.get("kind"):
+        case "collected":
+            return f"Collected {event['count']}/{event['limit']} jobs this search pass"
+        case "detail":
+            return (
+                "Fetched job description" if event["has_description"] else "Description unavailable"
+            )
+        case "enrichment":
+            return (
+                f"Checked descriptions {event['completed']}/{event['total']} "
+                f"({event['failed']} fetch errors)"
+            )
+        case "matching":
+            return f"Matcher requests completed {event['completed']}/{event['total']}"
+        case _:
+            return "Processing jobs"
 
 
 def stage_label(node: str) -> str:
@@ -15,7 +35,7 @@ def stage_label(node: str) -> str:
         "load_inputs": "Loading profile and search criteria",
         "search": "Searching LinkedIn and fetching job descriptions",
         "deduplicate": "Removing jobs already found",
-        "match": "Matching jobs against your profile",
+        "match": "Matching jobs against your profile and criteria",
         "refine": "Refining search parameters",
         "analyze_gaps": "Analyzing missing skills",
         "persist": "Saving reports",
@@ -97,6 +117,13 @@ def display(session: SearchSession) -> None:
             )
 
     console.print(f"Results saved in {output_dir}", style="dim", markup=False)
+    if session.token_usage:
+        input_tokens = sum(usage.get("input_tokens", 0) for usage in session.token_usage.values())
+        output_tokens = sum(usage.get("output_tokens", 0) for usage in session.token_usage.values())
+        console.print(
+            f"Model usage: {input_tokens:,} input / {output_tokens:,} output tokens",
+            style="dim",
+        )
 
     if session.search_refinements:
         console.print(

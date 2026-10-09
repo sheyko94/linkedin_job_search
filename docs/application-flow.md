@@ -17,7 +17,7 @@ flowchart TD
     NEW -->|Yes| MATCH["match: score only new jobs and accumulate results"]
     NEW -->|No| GAPS
     MATCH --> MORE{"Another search allowed?"}
-    MORE -->|Yes| REFINE["refine: validate guidance and save its Markdown representation"]
+    MORE -->|Yes| REFINE["refine: validate guidance and save JSON advice and a Markdown view"]
     MORE -->|No| GAPS
     REFINE --> ALLOWED
     GAPS --> PERSIST["persist: write matched jobs and skills gap reports"]
@@ -35,7 +35,8 @@ flowchart TD
   IDs, ends the loop and proceeds to gap analysis.
 - **Refinement:** receives accumulated match examples, the profile, and current
   parameters. It returns `SearchGuidance`; the coordinator stores the object in
-  graph state and renders `.state/search_params.md` with its JSON payload.
+  graph state and saves `.state/search_guidance.json`. `.state/search_params.md`
+  is a generated view, not application input.
   Location proposals can expand the search beyond `SEARCH_LOCATIONS`; they precede
   remaining starting locations without changing the matcher's geographic eligibility rules.
   Gap analysis runs later, so refinement has no computed skill gaps at this point.
@@ -43,15 +44,15 @@ flowchart TD
   refinement. It is a soft limit: an ongoing search still finishes and its new jobs
   are matched. Gap analysis and reports still run on normal completion.
 
-On the first run, missing or blank search parameters are initialized from the base
-criteria and saved. Future runs reuse those parameters. This saves search advice,
+Without saved JSON advice, search uses the base criteria. Refinement saves validated
+advice for later runs; malformed saved JSON is an error. This saves search advice,
 not interrupted-run progress; the graph has no checkpointer or resume support.
 
 ## Errors and progress
 
 The coordinator creates a unique output folder and trace using the run's start time.
 Both reports use that same timestamp and folder; previous outputs remain untouched.
-The coordinator streams task-start events to the CLI for stage labels and values
+The coordinator streams custom stage/progress events to the CLI and root values
 events to collect the final state. It binds a session ID for logging and clears it
 when the run exits.
 

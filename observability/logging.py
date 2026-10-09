@@ -8,7 +8,7 @@ navigation, DOM extraction count, LLM call, tool invocation, and timing.
 """
 
 import json
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -74,7 +74,7 @@ def trace_payload(label: str, data: Any) -> None:
         pass
 
 
-def configure(trace: Path, started_at: datetime) -> None:
+def configure(trace: Path, started_at: datetime) -> Token[Path | None]:
     """Create this run's trace and propagate its path with graph/worker context."""
     trace.parent.mkdir(parents=True, exist_ok=True)
     with trace.open("x", encoding="utf-8") as file:
@@ -82,8 +82,6 @@ def configure(trace: Path, started_at: datetime) -> None:
             f"# Execution trace — run started {started_at.isoformat()}\n"
             f"# Format: <timestamp>  <LEVEL>  <event>  <key=value ...>\n\n"
         )
-    _TRACE_PATH.set(trace)
-
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -96,6 +94,12 @@ def configure(trace: Path, started_at: datetime) -> None:
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
     )
+    return _TRACE_PATH.set(trace)
+
+
+def reset_trace(token: Token[Path | None]) -> None:
+    """Restore the caller's trace context when a run exits."""
+    _TRACE_PATH.reset(token)
 
 
 def get_logger(name: str) -> structlog.BoundLogger:

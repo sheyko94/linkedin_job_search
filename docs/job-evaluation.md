@@ -14,7 +14,7 @@ COMMITMENT: Full-time
 ```
 
 The matcher previously skipped some of these as permanent employment.
-[config/employment.py](../config/employment.py) now extracts explicit role-specific
+[domain/employment.py](../domain/employment.py) now extracts explicit role-specific
 engagement evidence. `JobPosting` retains LinkedIn's `job_type` and adds
 `engagement_type` and `engagement_evidence`.
 
@@ -31,15 +31,15 @@ for direct negation. It is deliberately limited: unusual phrasing, complex negat
 and multilingual descriptions may remain unresolved. The matcher still reads the
 description and assesses other blockers; contract evidence does not guarantee a match.
 
-[apply_job_details](../tools/search_tools.py) populates the evidence when details
-arrive. [Shared job formatting](../config/job_formatting.py) includes the same
+[fetch_job_details](../tools/job_details.py) populates the evidence when details
+arrive. [Shared job formatting](../domain/job_formatting.py) includes the same
 interpretation in matcher context and reports. It also derives evidence for older
 objects without populated engagement fields. The [matcher prompt](../agents/matcher.py)
 explicitly distinguishes full-time commitment from permanent employment.
 
 ## Detail-fetch eligibility
 
-[tools/detail_policy.py](../tools/detail_policy.py) provides one rule used by both
+[tools/job_details.py](../tools/job_details.py) provides one rule used by both
 the explicit detail tool and final enrichment:
 
 ```mermaid
@@ -48,9 +48,7 @@ flowchart TD
     OLD -->|Yes| SKIP["Skip navigation and log the reason"]
     OLD -->|No| DESC{"Description already present?"}
     DESC -->|Yes| SKIP
-    DESC -->|No| TITLE{"Title contains a discard keyword?"}
-    TITLE -->|Yes| SKIP
-    TITLE -->|No| FETCH["Fetch details with the configured delay"]
+    DESC -->|No| FETCH["Fetch details with the configured delay"]
     FETCH --> MERGE["Merge nonblank fields and derive engagement evidence"]
 ```
 
@@ -60,14 +58,21 @@ Eligible jobs are matched by ID, replacing the previous URL substring comparison
 When a fetch is skipped, the tool returns the reason and existing job data to the model.
 
 The coordinator supplies prior-pass job IDs through `SearchContext`, along with
-discard keywords and the live browser. These IDs exist only for the current run;
+the live browser. These IDs exist only for the current run;
 there is no cross-run result cache. The coordinator would discard these jobs during
 deduplication, so another detail fetch would not contribute a new match.
 
-Title filtering uses the existing comma-separated discard keywords. It skips detail
-fetching without deleting the job. New title-discarded jobs still reach the matcher,
-which evaluates the remaining card context. Failed or incomplete fetches leave jobs
-without descriptions eligible for later enrichment; no new retry mechanism is added.
+Discard keywords are supplied to the model as hints interpreted with the full user
+criteria. Keyword-only title skipping and automatic matcher rejection are removed:
+these could hide the description or bypass instructions to judge primary responsibilities.
+All new jobs missing descriptions are eligible for enrichment. Failed or incomplete fetches
+leave them eligible for later enrichment; no new retry mechanism is added.
+
+Both paths share delay, fetch, nonblank merge, and engagement extraction. Navigation
+errors and empty descriptions raise `JobDetailError`. The explicit tool returns
+error feedback to the model; enrichment counts failures and continues with other
+jobs. Invalid scraper data or unexpected programming errors are not treated as
+ordinary fetch failures.
 
 The improvement depends on query overlap and model tool choices. The
 [runtime measurements](runtime-planning.md) predate this policy; a live run is needed

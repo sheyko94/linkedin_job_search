@@ -1,33 +1,19 @@
-"""Write state and output files."""
+"""Render reports without reading or writing files."""
 
-import json
 import re
-from pathlib import Path
 
-from agents.models import MatchResult, SearchSession, SkillGap
-from config.job_formatting import format_job
-from config.settings import settings
+from domain.job_formatting import format_job
+from domain.models import MatchResult, SearchGuidance, SearchSession, SkillGap
 
 
-def _write(path: str | Path, content: str, *, overwrite: bool = True) -> None:
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    with p.open("w" if overwrite else "x", encoding="utf-8") as file:
-        file.write(content)
-
-
-def save_search_params(content: str) -> None:
-    _write(settings.search_params_path, content)
-
-
-def _guidance_block(content: str) -> list[str]:
+def _code_block(content: str) -> list[str]:
     # Guidance may contain Markdown fences; keep its contents inside this block.
     longest_run = max((len(run) for run in re.findall(r"`+", content)), default=0)
     fence = "`" * max(3, longest_run + 1)
     return [fence, content, fence, ""]
 
 
-def save_matched_jobs(session: SearchSession) -> None:
+def render_matched_jobs(session: SearchSession, *, description_chars: int) -> str:
     now = session.timestamp
     lines = [
         f"# Matched Jobs — {now}",
@@ -38,43 +24,37 @@ def save_matched_jobs(session: SearchSession) -> None:
         "",
     ]
 
-    for snapshot in session.search_params_used.get("iterations", []):
-        effective = snapshot["effective_settings"]
-        starting_locations = effective.get("starting_locations", effective["locations"])
+    for snapshot in session.search_history:
         lines += [
             "<details><summary><strong>Search Inputs and Effective Filters</strong> "
-            f"— iteration {snapshot['iteration']}</summary>",
+            f"— iteration {snapshot.iteration}</summary>",
             "",
             "These are input guidance and effective settings, not exact executed queries. "
             "See the execution trace for actual tool calls.",
             "",
-            f"**Configured starting locations:** {', '.join(starting_locations) or '(none)'}  ",
-            "**Effective search location order:** "
-            f"{', '.join(effective['locations']) or '(none)'}  ",
-            f"**Date filter:** {effective['date_posted']}  ",
-            f"**Work modes:** {', '.join(effective['work_modes']) or '(no filter)'}  ",
-            f"**Job types:** {', '.join(effective['job_types']) or '(no filter)'}  ",
-            f"**Max jobs per listing call:** {effective['max_jobs_per_search']}  ",
-            f"**Max collected jobs this iteration:** {effective['max_total_jobs']}",
-            "",
-            "### Search Parameters",
+            "**Configured starting locations:** "
+            f"{', '.join(snapshot.starting_locations) or '(none)'}  ",
+            f"**Effective search location order:** {', '.join(snapshot.locations) or '(none)'}  ",
+            f"**Date filter:** {snapshot.date_posted}  ",
+            f"**Work modes:** {', '.join(snapshot.work_modes) or '(no filter)'}  ",
+            f"**Job types:** {', '.join(snapshot.job_types) or '(no filter)'}  ",
+            f"**Max jobs per listing call:** {snapshot.max_jobs_per_search}  ",
+            f"**Max collected jobs this iteration:** {snapshot.max_total_jobs}",
             "",
         ]
-        lines += _guidance_block(snapshot["search_params_md"])
-        if snapshot.get("search_guidance") is not None:
+        if snapshot.guidance is not None:
             lines += ["### Validated Guidance Used by Search", ""]
-            lines += _guidance_block(json.dumps(snapshot["search_guidance"], indent=2))
+            lines += _code_block(snapshot.guidance.model_dump_json(indent=2))
         lines += ["### Base Search Criteria", ""]
-        lines += _guidance_block(snapshot["criteria_md"])
-        if snapshot["refinement_hint"]:
-            lines += ["### Refinement Hint", ""]
-            lines += _guidance_block(snapshot["refinement_hint"])
+        lines += _code_block(snapshot.criteria_md)
         lines += ["</details>", ""]
 
     if session.search_refinements:
-        lines += ["## Search Refinements for Next Run", ""]
-        for r in session.search_refinements:
-            lines.append(f"- {r}")
+        lines += ["## Search Refinements", ""]
+        for index, guidance in enumerate(session.search_refinements, start=1):
+            lines.append(f"### Refinement {index}")
+            lines.append("")
+            lines += _code_block(guidance.model_dump_json(indent=2))
         lines.append("")
 
     by_rec: dict[str, list[MatchResult]] = {}
@@ -106,20 +86,17 @@ def save_matched_jobs(session: SearchSession) -> None:
                 "<details><summary><strong>Context</strong> — exact info the "
                 "matcher used</summary>",
                 "",
-                "```",
-                format_job(m.job, description_chars=settings.matcher_description_chars),
-                "```",
-                "",
+                *_code_block(format_job(m.job, description_chars=description_chars)),
                 "</details>",
                 "",
                 "---",
                 "",
             ]
 
-    _write(Path(session.output_dir) / "matched_jobs.md", "\n".join(lines), overwrite=False)
+    return "\n".join(lines)
 
 
-def save_skills_gap(session: SearchSession) -> None:
+def render_skills_gap(session: SearchSession) -> str:
     lines = [
         f"# Skills Gap Analysis — {session.timestamp}",
         "",
@@ -144,4 +121,29 @@ def save_skills_gap(session: SearchSession) -> None:
             lines.append(f"| {g.skill} | {g.frequency} jobs | {g.priority} |")
         lines += [""]
 
-    _write(Path(session.output_dir) / "skills_gap.md", "\n".join(lines), overwrite=False)
+    return "\n".join(lines)
+
+
+def render_search_guidance(guidance: SearchGuidance) -> str:
+    """Render a view; only search_guidance.json is read by the application."""
+    lines = [
+        "# Search Parameters",
+        "",
+        "## Session Insights",
+        guidance.insights,
+        "",
+        "## Keyword Groups (priority order)",
+        *[f"- {keywords}" for keywords in guidance.keyword_groups],
+        "",
+        "## Location Priorities",
+        ", ".join(guidance.location_priorities) or "Use configured location order",
+        "",
+        "## Changes and Reasoning",
+        guidance.reasoning,
+        "",
+        "Generated from search_guidance.json. This Markdown is a view, not application input.",
+        "Date, work-mode, and job-type settings remain fixed.",
+        "Location proposals are tried before remaining configured starting locations.",
+        "",
+    ]
+    return "\n".join(lines)

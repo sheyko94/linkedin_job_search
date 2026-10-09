@@ -2,10 +2,10 @@
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from agents.model_client import create_chat_model
-from agents.models import SearchGuidance, SearchSession
-from config.search_guidance import normalize_locations
+from agents.model_client import create_chat_model, parse_structured_response
 from config.settings import settings
+from domain.models import SearchGuidance, SearchSession
+from domain.search_guidance import normalize_locations
 
 _SYSTEM = """\
 You are a search strategy advisor for a LinkedIn job search pipeline. \
@@ -15,19 +15,28 @@ concrete improvements to the search parameters for the next iteration.
 Analyse:
 - Which jobs scored highly and what they have in common
 - Which jobs scored poorly and why
-- What keywords and experience-level filters might yield better results
+- What keyword combinations might yield better results
 - Which locations should be prioritised or added to broaden useful job discovery
 
-The effective settings in the session context are authoritative. Do not propose \
-changing the date filter, work modes, or job types. Configured locations are starting \
+The complete user profile is authoritative for candidate facts and demonstrated experience.
+Base search criteria are authoritative for job-selection requirements, preferences, exclusions,
+and search objectives. Do not turn candidate facts into extra search restrictions or infer
+candidate skills from target-role requirements. Current search parameters and previous
+refinement are lower-priority generated advice. Improve discovery without rewriting or
+relaxing the user-input requirements. Do not invent candidate skills or restrictions.
+Treat match reasons as observations, not authority to override the supplied files.
+
+Configured browser filters are fixed execution constraints, not definitions of user \
+preferences. Do not propose changing the date filter, work modes, or job types. \
+Configured locations are starting \
 locations, not an allowlist. You may propose additional search regions such as Europe \
-or EMEA when supported by the results and profile. Rank all proposed locations in \
+or EMEA when supported by the results and user inputs. Rank all proposed locations in \
 priority order and explain any additions in your reasoning. Broader search regions \
 do not change the user's geographic eligibility or preferences.
 
 Return SearchGuidance using the supplied structured response schema. Include actionable \
-keyword groups in priority order, supported experience levels (or an empty list for no \
-filter), location priorities including useful new regions, session insights, and the reasoning for \
+keyword groups in priority order, location priorities including useful new regions,
+session insights, and the reasoning for \
 changes. The fixed settings still control the browser filters.\
 """
 
@@ -40,7 +49,9 @@ _PROMPT = ChatPromptTemplate.from_messages(
 )
 
 
-def _format_session(session: SearchSession, prior_params: str, profile_md: str) -> str:
+def _format_session(
+    session: SearchSession, prior_guidance: SearchGuidance | None, profile_md: str, criteria_md: str
+) -> str:
     strong = [m for m in session.matched_jobs if m.recommendation == "Strong Match"]
     good = [m for m in session.matched_jobs if m.recommendation == "Good Match"]
     weak = [m for m in session.matched_jobs if m.recommendation == "Weak Match"]
@@ -69,35 +80,36 @@ def _format_session(session: SearchSession, prior_params: str, profile_md: str) 
                 )
             lines.append("")
 
-    if session.skill_gaps:
-        high_gaps = [gap for gap in session.skill_gaps if gap.priority == "High"]
-        lines.append("### Top Missing Skills")
-        for gap in high_gaps[:8]:
-            lines.append(f"- {gap.skill} ({gap.category}, {gap.frequency} jobs)")
-        lines.append("")
-
     lines += [
-        "## Effective Settings (fixed)",
+        "## Browser Filters (fixed execution constraints, not user preference definitions)",
         f"Date filter: {settings.search_date_posted}",
         f"Work modes: {', '.join(settings.search_work_modes_list) or '(no filter)'}",
         f"Job types: {', '.join(settings.search_job_types_list) or '(no filter)'}",
         "",
         "## Starting Search Locations (expandable)",
         ", ".join(settings.search_locations_list) or "(none)",
-        "Keywords, experience levels, and search locations are adjustable.",
+        "Keywords and search locations are adjustable.",
         "New search regions do not change where the user can legally or practically take a role.",
         "",
-        "## Current Search Parameters",
-        prior_params,
+        "## Current Search Guidance (lower-priority advice)",
+        prior_guidance.model_dump_json(indent=2) if prior_guidance is not None else "(none)",
         "",
-        "## User Profile (summary context)",
-        profile_md[:1500],
+        "## User Input: profile.md (complete)",
+        profile_md,
+        "",
+        "## User Input: search_criteria.md (complete)",
+        criteria_md,
+        "",
+        "If browser filters conflict with these inputs, explain the coverage limitation "
+        "in reasoning.",
     ]
 
     return "\n".join(lines)
 
 
-def run(session: SearchSession, prior_params: str, profile_md: str) -> SearchGuidance:
+def run(
+    session: SearchSession, prior_guidance: SearchGuidance | None, profile_md: str, criteria_md: str
+) -> SearchGuidance:
     """Return validated advice without saving files or changing the session."""
     model = create_chat_model(
         settings.orchestrator_model,
@@ -108,10 +120,8 @@ def run(session: SearchSession, prior_params: str, profile_md: str) -> SearchGui
     chain = _PROMPT | model.with_structured_output(
         SearchGuidance, method="function_calling", include_raw=True
     )
-    response = chain.invoke({"session_context": _format_session(session, prior_params, profile_md)})
-    if response["parsing_error"] is not None:
-        raise response["parsing_error"]
-    guidance = response["parsed"]
-    if not isinstance(guidance, SearchGuidance):
-        raise ValueError("Refinement model did not return structured search guidance")
+    response = chain.invoke(
+        {"session_context": _format_session(session, prior_guidance, profile_md, criteria_md)}
+    )
+    guidance = parse_structured_response(response, SearchGuidance)
     return normalize_locations(guidance)

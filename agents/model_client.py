@@ -2,18 +2,31 @@
 
 import time
 from threading import Lock
-from typing import Any
+from typing import Any, TypeVar
 from uuid import UUID
 
-from langchain_anthropic import ChatAnthropic
+from langchain.chat_models import init_chat_model
 from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
+from pydantic import BaseModel
 
-from config.logging import get_logger, trace_payload
 from config.settings import settings
+from observability.logging import get_logger, trace_payload
 
 logger = get_logger(__name__)
+ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
+
+
+def parse_structured_response(response: dict, schema: type[ResponseModel]) -> ResponseModel:
+    """Propagate LangChain parsing errors and require the expected response model."""
+    if response["parsing_error"] is not None:
+        raise response["parsing_error"]
+    parsed = response["parsed"]
+    if not isinstance(parsed, schema):
+        raise ValueError(f"Model did not return structured {schema.__name__}")
+    return parsed
 
 
 class ModelLoggingCallback(BaseCallbackHandler):
@@ -94,10 +107,19 @@ def create_chat_model(
     *,
     stage: str,
     tool_name: str | None = None,
-) -> ChatAnthropic:
-    return ChatAnthropic(
-        model=model_name,
-        api_key=settings.anthropic_api_key,
+) -> BaseChatModel:
+    # Bare names retain the existing Anthropic default. A provider prefix enables
+    # another installed integration without changing any component's model code.
+    provider, name = model_name.split(":", 1) if ":" in model_name else ("anthropic", model_name)
+    credentials = {}
+    if provider == "anthropic":
+        if not settings.anthropic_api_key.strip():
+            raise ValueError("ANTHROPIC_API_KEY is required when using an Anthropic model")
+        credentials["api_key"] = settings.anthropic_api_key
+    return init_chat_model(
+        model=name,
+        model_provider=provider,
         max_tokens=max_tokens,
         callbacks=[ModelLoggingCallback(model_name, stage, tool_name)],
+        **credentials,
     )

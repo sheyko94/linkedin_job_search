@@ -8,7 +8,7 @@ the code defaults. Optional LinkedIn credentials are unnecessary for manual logi
 
 | Variable | Default / requirement | Description |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | required | Anthropic API key |
+| `ANTHROPIC_API_KEY` | required for Anthropic models | Anthropic API key; validated when constructing an Anthropic model |
 | `ORCHESTRATOR_MODEL` | `claude-haiku-4-5-20251001` | Model for LLM search-param refinement |
 | `SEARCH_MODEL` | `claude-haiku-4-5-20251001` | Model for the Search Agent |
 | `MATCHER_MODEL` | `claude-haiku-4-5-20251001` | Model for the Matcher Agent |
@@ -21,6 +21,7 @@ the code defaults. Optional LinkedIn credentials are unnecessary for manual logi
 | `MAX_TOTAL_JOBS` | `25` | Hard cap on total jobs collected per iteration |
 | `JOB_DETAIL_DELAY_MS` | `4000` | Pause between fetching each job detail page |
 | `MATCHER_BATCH_SIZE` | `15` | Jobs per matcher LLM call |
+| `MATCHER_MAX_CONCURRENCY` | `1` | Maximum simultaneous matcher requests; set `2` to overlap independent batches |
 | `MATCHER_DESCRIPTION_CHARS` | `7000` | Maximum description characters sent to the matcher per job |
 | `MAX_REFINEMENT_ITERATIONS` | `1` | Maximum search/match passes; refinement runs only between passes |
 | `ORCHESTRATOR_TIMEOUT` | `600.0` | Soft deadline for starting searches/refinements (seconds) |
@@ -31,9 +32,17 @@ the code defaults. Optional LinkedIn credentials are unnecessary for manual logi
 | `OUTPUT_DIR` | `.output` | Parent directory for timestamped run folders |
 
 Job limits, matcher batch size, description length, iteration count, and timeout must be
-positive. Timeout must be finite. Browser slowdown and detail delay may be zero, but not
+positive. Matcher concurrency must also be positive. Timeout must be finite.
+Browser slowdown and detail delay may be zero, but not
 negative. Description length cannot exceed the scraper's 8,000-character cap. Pydantic
 checks these constraints when settings load.
+
+Model settings accept bare Claude names (Anthropic by default) or LangChain
+`provider:model` names. Other providers require their integration package and
+credentials exported in the shell; arbitrary provider credentials in `.env` are
+not loaded by this application's settings. They must support tool calling and
+function-calling structured output. The default remains Anthropic for every stage.
+See [model construction](framework-components.md#2-model-construction) for details.
 
 
 [Back to documentation](README.md).
