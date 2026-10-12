@@ -14,6 +14,7 @@ from observability.logging import get_logger
 from tools import linkedin
 from tools.job_details import detail_skip_reason, fetch_job_details
 from tools.search_context import SearchContext
+from tools.url_guardrails import URLValidationError, validate_linkedin_url
 
 logger = get_logger(__name__)
 
@@ -119,6 +120,14 @@ def get_job_details(job_url: str, runtime: ToolRuntime[SearchContext]) -> Comman
     jobs = {
         job_id: job.model_copy(deep=True) for job_id, job in runtime.state["jobs_by_id"].items()
     }
+    try:
+        job_url = validate_linkedin_url(job_url)
+    except URLValidationError as exc:
+        return ToolMessage(
+            content=f"{exc} Use a valid LinkedIn URL from the collected jobs.",
+            tool_call_id=runtime.tool_call_id,
+            name="get_job_details",
+        )
     job = jobs.get(linkedin.job_id_from_url(job_url))
     if job is None:
         return ToolMessage(

@@ -15,6 +15,7 @@ from playwright.sync_api import Error as PlaywrightError
 
 from config.settings import settings
 from observability.logging import get_logger
+from tools.url_guardrails import URLValidationError, validate_linkedin_url
 
 logger = get_logger(__name__)
 
@@ -239,7 +240,10 @@ def _extract_cards_on_page(page: Any, seen_ids: set[str], remaining: int) -> lis
         title = _safe_text(title_el) if title_el else ""
         # Always store the canonical individual-job URL for the link column,
         # regardless of the card's actual href (may be a collections/currentJobId link).
-        url = f"https://www.linkedin.com/jobs/view/{job_id}/"
+        try:
+            url = validate_linkedin_url(f"https://www.linkedin.com/jobs/view/{job_id}/")
+        except URLValidationError:
+            continue
 
         company_el = card.query_selector(
             ".job-card-container__primary-description, "
@@ -276,12 +280,14 @@ def scrape_job_listings(page: Any, search_url: str, max_jobs: int) -> list[dict]
     LinkedIn paginates results via the &start= URL param (0, 25, 50, ...). We walk
     those pages until we have `max_jobs` or a page returns no new results.
     """
+    search_url = validate_linkedin_url(search_url)
     jobs: list[dict] = []
     seen_ids: set[str] = set()
     start = 0
 
     while len(jobs) < max_jobs:
-        page_url = f"{search_url}&start={start}"
+        separator = "&" if "?" in search_url else "?"
+        page_url = validate_linkedin_url(f"{search_url}{separator}start={start}")
         logger.info("linkedin_navigate_search", url=page_url)
         page.goto(page_url, timeout=30_000)
         page.wait_for_load_state("domcontentloaded", timeout=20_000)
@@ -342,10 +348,9 @@ _TYPES = ("full-time", "part-time", "contract", "temporary", "internship")
 
 
 def job_id_from_url(job_url: str) -> str:
-    m = _JOB_ID_RE.search(job_url)
-    if not m:
-        return ""
-    return next(g for g in m.groups() if g)
+    validate_linkedin_url(job_url)
+    match = _JOB_ID_RE.search(job_url)
+    return next(group for group in match.groups() if group) if match else ""
 
 
 def _first_text(page: Any, selectors: tuple[str, ...]) -> str:
@@ -364,11 +369,13 @@ def get_job_details(page: Any, job_url: str) -> dict:
     Note: we load the job via the results-pane URL (currentJobId) because the standalone
     job page is unreliable, but the caller keeps `job.url` as the /jobs/view link.
     """
-    job_id = job_id_from_url(job_url)
-    if not job_id:
-        raise JobDetailError(f"Cannot identify LinkedIn job from URL: {job_url}")
-
-    pane_url = _PANE_URL.format(job_id=job_id)
+    try:
+        job_id = job_id_from_url(job_url)
+        if not job_id:
+            raise JobDetailError("Cannot identify a job ID from the LinkedIn URL.")
+        pane_url = validate_linkedin_url(_PANE_URL.format(job_id=job_id))
+    except URLValidationError as exc:
+        raise JobDetailError(str(exc)) from exc
     try:
         page.goto(pane_url, timeout=20_000)
         page.wait_for_load_state("domcontentloaded", timeout=15_000)

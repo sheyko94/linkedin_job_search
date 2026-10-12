@@ -8,6 +8,7 @@ from domain.employment import engagement_evidence
 from domain.models import JobPosting
 from observability.logging import get_logger
 from tools import linkedin
+from tools.url_guardrails import URLValidationError, validate_linkedin_url
 
 logger = get_logger(__name__)
 
@@ -23,6 +24,10 @@ def detail_skip_reason(job: JobPosting, previous_job_ids: frozenset[str]) -> str
 def fetch_job_details(page: Any, job: JobPosting) -> dict:
     """Delay, fetch and merge on the browser thread; incomplete fetches fail explicitly."""
     try:
+        try:
+            validate_linkedin_url(job.url)
+        except URLValidationError as exc:
+            raise linkedin.JobDetailError(str(exc)) from exc
         time.sleep(settings.job_detail_delay_ms / 1000)
         details = linkedin.get_job_details(page, job.url)
         for field in ("description", "salary_range", "work_mode", "job_type", "posted_date"):
