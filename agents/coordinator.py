@@ -27,6 +27,7 @@ from domain.search_guidance import (
     effective_locations,
     normalize_locations,
 )
+from observability.langfuse import trace_run
 from observability.logging import configure, get_logger, reset_trace
 from storage import reader, writer
 
@@ -251,24 +252,29 @@ def run(
         # Graph steps are not search iterations. Allow enough steps for the entire
         # configured loop plus initialization and final reporting.
         state = initial_state
-        for part in build_graph().stream(
-            initial_state,
-            config={
-                "recursion_limit": max(10, settings.max_refinement_iterations * 5 + 5),
-                "callbacks": [usage],
-            },
-            stream_mode=["custom", "values"],
-            subgraphs=True,
-            version="v2",
-        ):
-            if part["type"] == "custom":
-                event = part["data"]
-                if event.get("kind") == "stage" and on_stage is not None:
-                    on_stage(event["stage"])
-                elif on_progress is not None:
-                    on_progress(event)
-            elif part["type"] == "values" and not part["ns"]:
-                state = part["data"]
+        with trace_run(session_id) as langfuse_handler:
+            callbacks = [usage]
+            if langfuse_handler is not None:
+                callbacks.append(langfuse_handler)
+            for part in build_graph().stream(
+                initial_state,
+                config={
+                    "recursion_limit": max(10, settings.max_refinement_iterations * 5 + 5),
+                    "callbacks": callbacks,
+                    "run_name": "linkedin-job-search",
+                },
+                stream_mode=["custom", "values"],
+                subgraphs=True,
+                version="v2",
+            ):
+                if part["type"] == "custom":
+                    event = part["data"]
+                    if event.get("kind") == "stage" and on_stage is not None:
+                        on_stage(event["stage"])
+                    elif on_progress is not None:
+                        on_progress(event)
+                elif part["type"] == "values" and not part["ns"]:
+                    state = part["data"]
         session = _to_session(state)
         session.token_usage = dict(usage.usage_metadata)
         logger.info(

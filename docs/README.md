@@ -28,3 +28,4 @@ show the exact compiled topology. Refresh them with `uv run python -m scripts.ex
 - [Configuration](configuration.md): environment variables, defaults, and overrides.
 - [Runtime planning](runtime-planning.md): measurements and estimates.
 - [Quick start](../README.md#setup): installation, input files, and the run command.
+- [Local Langfuse infrastructure](langfuse.md): optional observability stack and operations.

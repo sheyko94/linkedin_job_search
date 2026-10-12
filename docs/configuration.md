@@ -9,6 +9,9 @@ the code defaults. Optional LinkedIn credentials are unnecessary for manual logi
 | Variable | Default / requirement | Description |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | required for Anthropic models | Anthropic API key; validated when constructing an Anthropic model |
+| `LANGFUSE_PUBLIC_KEY` | empty | Langfuse project public key; set together with the secret key to enable tracing |
+| `LANGFUSE_SECRET_KEY` | empty | Langfuse project secret key; both keys blank disables tracing |
+| `LANGFUSE_BASE_URL` | `http://localhost:3000` | Langfuse endpoint; match the web service's port |
 | `ORCHESTRATOR_MODEL` | `claude-haiku-4-5-20251001` | Model for LLM search-param refinement |
 | `SEARCH_MODEL` | `claude-haiku-4-5-20251001` | Model for the Search Agent |
 | `MATCHER_MODEL` | `claude-haiku-4-5-20251001` | Model for the Matcher Agent |
@@ -44,5 +47,8 @@ not loaded by this application's settings. They must support tool calling and
 function-calling structured output. The default remains Anthropic for every stage.
 See [model construction](framework-components.md#2-model-construction) for details.
 
+
+Langfuse settings are passed explicitly to the SDK; no shell export is needed.
+The [Langfuse guide](langfuse.md) covers setup and trace contents.
 
 [Back to documentation](README.md).

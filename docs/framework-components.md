@@ -29,6 +29,15 @@ This is token accounting, not a monetary estimate or a record of all failed API 
 `ModelLoggingCallback` remains responsible for per-call timing, errors, and local
 raw response traces. It observes individual usage but no longer needs to accumulate it.
 
+When both Langfuse project keys are configured, `observability.langfuse.trace_run`
+adds a fresh Langfuse `CallbackHandler` alongside the usage handler on the root graph.
+Nested graphs, model chains, tool calls, and matcher batches inherit it. The SDK client
+receives credentials and its base URL explicitly from settings. Session attributes
+are scoped to the run, and pending exports are flushed even when the graph fails.
+Flush exceptions are logged without replacing the workflow's result or original error.
+See [Langfuse setup](langfuse.md) and the
+[official callback integration](https://langfuse.com/integrations/frameworks/langchain).
+
 ## 2. Model construction
 
 Previously, `create_chat_model` directly constructed `ChatAnthropic`. It now returns

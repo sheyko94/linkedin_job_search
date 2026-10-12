@@ -62,6 +62,15 @@ Set `MAX_REFINEMENT_ITERATIONS=2` or higher to enable refinement between search 
 See [configuration](docs/configuration.md) for filters, models, and optional overrides,
 and [runtime planning](docs/runtime-planning.md) for measured costs and estimates.
 
+## Optional Langfuse infrastructure
+
+The [local Langfuse stack](docs/langfuse.md) provides Docker Compose services,
+persistent storage, and credentials configured in the root `.env`. Start it separately from the Python
+application. Set `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_BASE_URL`
+in `.env` to send graph, model, and tool traces to your Langfuse project. Leave both
+keys blank to run without Langfuse. Traces include model inputs and outputs, including
+profile, criteria, and job data, and use the run's session ID for correlation.
+
 ## LinkedIn login
 
 Complete login in the visible browser on the first run. Cookies are saved in
