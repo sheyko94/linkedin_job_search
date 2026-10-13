@@ -385,6 +385,13 @@ def get_job_details(page: Any, job_url: str) -> dict:
             time.sleep(1)
 
         description = _first_text(page, _DESC_SELECTORS)
+        location = (
+            _first_text(
+                page, (".job-details-jobs-unified-top-card__primary-description-container",)
+            )
+            .split("·", 1)[0]
+            .strip()
+        )
         salary = _first_text(
             page,
             (".jobs-details__salary-main-rail-card", ".compensation__salary"),
@@ -416,6 +423,7 @@ def get_job_details(page: Any, job_url: str) -> dict:
                 job_type = next((x for x in _TYPES if x in haystack), "")
 
         return {
+            "location": location,
             "description": description[:8000],  # cap to avoid huge tokens
             "salary_range": salary,
             "work_mode": work_mode,

@@ -30,7 +30,14 @@ def fetch_job_details(page: Any, job: JobPosting) -> dict:
             raise linkedin.JobDetailError(str(exc)) from exc
         time.sleep(settings.job_detail_delay_ms / 1000)
         details = linkedin.get_job_details(page, job.url)
-        for field in ("description", "salary_range", "work_mode", "job_type", "posted_date"):
+        for field in (
+            "location",
+            "description",
+            "salary_range",
+            "work_mode",
+            "job_type",
+            "posted_date",
+        ):
             value = details.get(field)
             if isinstance(value, str) and value.strip():
                 setattr(job, field, value)
