@@ -459,14 +459,16 @@ that agent invocation; later invocations can select a newer labeled version.
 The JSON format contains `name`, `type: "chat"`, and a `prompt` message list.
 Message content uses Langfuse variables such as `{{profile}}`; history placeholders
 use `{"type": "placeholder", "name": "messages"}`. The generic loader converts
-these to LangChain templates. Input-formatting functions remain in the agents.
+these to LangChain templates. Input-formatting functions remain in the agents;
+behavioral instructions live in the JSON templates.
 
 Each agent owns prompt loading. The coordinator supplies workflow inputs, not
 templates. `prompts/prompt.py` loads the selected Langfuse version, logs its source,
-version, and hash, and uses the local JSON when a fetch fails. Matcher validates
-its required variable set and keeps its response-schema and job-ID checks in code.
+version, and hash, and uses the local JSON when a fetch fails. Every agent validates
+its required variable set; search also requires a conversation-history placeholder.
+Matcher keeps its response-schema and job-ID checks in code.
 The loader reads the local JSON before fetching the remote prompt, so keep the file
-present and valid even when Langfuse supplies the runtime version. Malformed local files or incompatible matcher templates raise errors rather than
+present and valid even when Langfuse supplies the runtime version. Malformed local files or incompatible agent templates raise errors rather than
 being repaired. The application can use a fallback; matcher evaluations require
 the selected remote version. Fetching once per agent invocation also keeps matcher
 batches and search's model/tool loop on the same template.
@@ -540,7 +542,9 @@ Validation requires nonempty inputs, Boolean expected decisions, and
 its saved profile and criteria. It performs model calls but no LinkedIn browsing.
 Langfuse keys are always required; model credentials are also required with `--run`.
 The runner resolves the prompt once and pins its version across the experiment,
-recording its name, version, source, and hash. Evaluations never silently fall back
+recording its name, version, source, and hash, plus the matcher model, description
+character limit, Git revision, and whether the working tree has changes. Git fields
+are null when Git information is unavailable. Evaluations never silently fall back
 to local prompts: an initial prompt-fetch failure stops the run, and a failure
 while processing an item is recorded as an execution error.
 
@@ -566,7 +570,8 @@ Experiment-level numeric scores use the following definitions:
 Precision, recall, and F1 exclude execution errors; zero denominators return `0`.
 Read these scores alongside the error rate, because excluding failed items can make
 recall look better. Parsing failures, invalid job-ID coverage, and other task
-exceptions return `{"error": "ExceptionType"}` and count as failed items. A valid
+exceptions return `error` (the exception type) and `error_reason`, and count as failed
+items. `error_reason` contains the original exception message. A valid
 but incorrect decision affects classification metrics, not execution error rate.
 Langfuse's built-in Error Count is separate from the custom `execution_error_rate`,
 which is computed from task outputs. Inspect the item's trace and task output to

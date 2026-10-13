@@ -64,7 +64,8 @@ explicit options.
   JSON baseline/fallback; `PROMPT_LABEL` selects the Langfuse runtime version.
   Preserve template variables and search's conversation-history placeholder.
 - Record prompt source, version, and hash; do not present local fallback as a remote
-  version. Matcher checks its required input-variable set. Evaluations pin a remote
+  version. Every agent checks its required input-variable set; search also requires
+  a conversation-history placeholder. Evaluations pin a remote
   version and never silently fall back to local prompts.
 
 ## Workflow invariants

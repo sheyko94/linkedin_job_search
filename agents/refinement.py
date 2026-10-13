@@ -39,17 +39,15 @@ def _format_session(
             lines.append("")
 
     lines += [
-        "## Browser Filters (fixed execution constraints, not user preference definitions)",
+        "## Browser Filters",
         f"Date filter: {settings.search_date_posted}",
         f"Work modes: {', '.join(settings.search_work_modes_list) or '(no filter)'}",
         f"Job types: {', '.join(settings.search_job_types_list) or '(no filter)'}",
         "",
-        "## Starting Search Locations (expandable)",
+        "## Starting Search Locations",
         ", ".join(settings.search_locations_list) or "(none)",
-        "Keywords and search locations are adjustable.",
-        "New search regions do not change where the user can legally or practically take a role.",
         "",
-        "## Current Search Guidance (lower-priority advice)",
+        "## Current Search Guidance",
         prior_guidance.model_dump_json(indent=2) if prior_guidance is not None else "(none)",
         "",
         "## User Input: profile.md (complete)",
@@ -58,8 +56,6 @@ def _format_session(
         "## User Input: search_criteria.md (complete)",
         criteria_md,
         "",
-        "If browser filters conflict with these inputs, explain the coverage limitation "
-        "in reasoning.",
     ]
 
     return "\n".join(lines)
@@ -75,9 +71,9 @@ def run(
         stage="refinement",
         tool_name=SearchGuidance.__name__,
     )
-    chain = load_prompt("refinement") | model.with_structured_output(
-        SearchGuidance, method="function_calling", include_raw=True
-    )
+    chain = load_prompt(
+        "refinement", required_variables={"session_context"}
+    ) | model.with_structured_output(SearchGuidance, method="function_calling", include_raw=True)
     response = chain.invoke(
         {"session_context": _format_session(session, prior_guidance, profile_md, criteria_md)}
     )

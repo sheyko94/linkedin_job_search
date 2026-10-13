@@ -4,7 +4,7 @@ import json
 from hashlib import sha256
 from pathlib import Path
 
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langfuse import Langfuse
 from langfuse.api import Prompt_Chat
 from langfuse.model import ChatPromptClient
@@ -23,6 +23,8 @@ def load_prompt(
     label: str | None = None,
     version: int | None = None,
     allow_fallback: bool = True,
+    required_variables: set[str] | None = None,
+    history_placeholder: str | None = None,
 ) -> ChatPromptTemplate:
     local = json.loads((PROMPT_DIR / f"{name}.json").read_text())
     try:
@@ -59,6 +61,20 @@ def load_prompt(
         "prompt_hash": sha256(json.dumps(selected.prompt, sort_keys=True).encode()).hexdigest(),
     }
     template = ChatPromptTemplate.from_messages(messages)
+    if required_variables is not None and set(template.input_variables) != required_variables:
+        raise ValueError(
+            f"{name} prompt must use exactly {sorted(required_variables)}; "
+            f"got {sorted(template.input_variables)}"
+        )
+    if history_placeholder is not None and not any(
+        isinstance(message, MessagesPlaceholder)
+        and message.variable_name == history_placeholder
+        and not message.optional
+        for message in template.messages
+    ):
+        raise ValueError(
+            f"{name} prompt must include a required {history_placeholder} history placeholder"
+        )
     logger.info("prompt_selected", **metadata)
     template.metadata = metadata
     if not selected.is_fallback:

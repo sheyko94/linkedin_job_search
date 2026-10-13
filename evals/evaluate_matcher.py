@@ -1,6 +1,8 @@
 """Run a minimal yes/no matcher evaluation against a reviewed Langfuse dataset."""
 
 import argparse
+import subprocess
+from pathlib import Path
 
 from langfuse import Evaluation, Langfuse
 from langfuse.langchain import CallbackHandler
@@ -56,7 +58,10 @@ def make_task(graph, public_key: str):
                 **result.model_dump(exclude={"job"}),
             }
         except Exception as exc:
-            return {"error": type(exc).__name__}
+            return {
+                "error": type(exc).__name__,
+                "error_reason": str(exc),
+            }
 
     return task
 
@@ -98,6 +103,29 @@ def score_run(*, item_results, **kwargs) -> list[Evaluation]:
     ]
 
 
+def build_experiment_metadata(prompt_metadata: dict) -> dict:
+    metadata = {k: v for k, v in prompt_metadata.items() if k != "langfuse_prompt"} | {
+        "matcher_model": settings.matcher_model,
+        "matcher_description_chars": settings.matcher_description_chars,
+        "git_revision": None,
+        "git_dirty": None,
+    }
+    try:
+        options = {
+            "cwd": Path(__file__).resolve().parents[1],
+            "capture_output": True,
+            "text": True,
+            "check": True,
+            "timeout": 3,
+        }
+        revision = subprocess.run(["git", "rev-parse", "HEAD"], **options)
+        status = subprocess.run(["git", "status", "--porcelain"], **options)
+        metadata.update(git_revision=revision.stdout.strip(), git_dirty=bool(status.stdout.strip()))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return metadata
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", default="job-matcher-baseline")
@@ -133,7 +161,7 @@ def main() -> None:
             evaluators=[score_decision],
             run_evaluators=[score_run],
             max_concurrency=1,
-            metadata={k: v for k, v in prompt.metadata.items() if k != "langfuse_prompt"},
+            metadata=build_experiment_metadata(prompt.metadata),
         )
         print(result.format())
     finally:

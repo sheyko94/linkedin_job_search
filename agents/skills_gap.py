@@ -60,7 +60,10 @@ def run(results: list[MatchResult], profile_md: str, criteria_md: str) -> list[S
     structured_model = model.with_structured_output(
         SkillsGapResponse, method="function_calling", include_raw=True
     )
-    chain = load_prompt("skills_gap") | structured_model
+    chain = (
+        load_prompt("skills_gap", required_variables={"profile", "criteria", "results"})
+        | structured_model
+    )
     response = chain.invoke(
         {"results": _format_results(results), "profile": profile_md, "criteria": criteria_md}
     )

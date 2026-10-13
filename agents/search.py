@@ -40,30 +40,20 @@ def _format_search_context(
 ) -> str:
     locations = effective_locations(guidance, settings.search_locations_list)
     if guidance is not None:
-        parameters = (
-            "## Generated Search Guidance (lower priority than user inputs)\n"
-            f"{guidance.model_dump_json(indent=2)}\n\n"
-            "Use these keyword and location priorities only where compatible with user inputs.\n"
-        )
+        parameters = f"## Generated Search Guidance\n{guidance.model_dump_json(indent=2)}\n\n"
     else:
-        parameters = (
-            "## Search Guidance\nNo generated advice yet; use the base search criteria.\n\n"
-        )
+        parameters = "## Search Guidance\nNo generated advice yet.\n\n"
     return (
         f"## User Input: profile.md (complete)\n{profile_md}\n\n"
         f"## User Input: search_criteria.md (complete)\n{criteria_md}\n\n"
         + parameters
         + f"Effective search locations in priority order: {', '.join(locations)}\n"
-        "Try these locations in order as the listing budget permits. Refined regions expand\n"
-        "discovery scope; they do not relax candidate eligibility in the base criteria.\n"
         f"Fixed date filter: {settings.search_date_posted}\n"
         f"Fixed work modes: {', '.join(settings.search_work_modes_list) or '(no filter)'}\n"
         f"Fixed job types: {', '.join(settings.search_job_types_list) or '(no filter)'}\n"
         f"Max jobs per search call: {settings.max_jobs_per_search}\n"
         f"Max total jobs to collect across all calls: {settings.max_total_jobs}\n"
-        f"User discard keywords (interpret with full criteria): {discard_keywords}\n"
-        "Stop calling scrape_jobs once you reach the total limit.\n"
-        "Use the tools to search LinkedIn and collect job listings now."
+        f"User discard keywords: {discard_keywords}"
     )
 
 
@@ -96,7 +86,12 @@ def build_search_graph() -> CompiledStateGraph:
             model = create_chat_model(
                 settings.search_model, max_tokens=2048, stage="search"
             ).bind_tools(SEARCH_TOOLS, parallel_tool_calls=False)
-            chain = load_prompt("search") | model
+            chain = (
+                load_prompt(
+                    "search", required_variables={"messages"}, history_placeholder="messages"
+                )
+                | model
+            )
         response = chain.invoke({"messages": state["messages"]})
         return {
             "messages": [response],

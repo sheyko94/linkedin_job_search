@@ -18,15 +18,13 @@ logger = get_logger(__name__)
 
 def get_prompt(*, client=None, version: int | None = None, allow_fallback: bool = True):
     """Load the matcher template and enforce this agent's input contract."""
-    prompt = load_prompt(
+    return load_prompt(
         "matcher",
         client,
         version=version,
         allow_fallback=allow_fallback,
+        required_variables={"profile", "criteria", "discard_keywords", "jobs"},
     )
-    if set(prompt.input_variables) != {"profile", "criteria", "discard_keywords", "jobs"}:
-        raise ValueError("Matcher prompt must use profile, criteria, discard_keywords and jobs")
-    return prompt
 
 
 class MatchItem(BaseModel):
