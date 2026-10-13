@@ -1,4 +1,4 @@
-"""Export current graph topology as Markdown without model or browser calls.
+"""Refresh graph topology in DEVELOPMENT.md without model or browser calls.
 
 Run from the repository root: uv run python -m scripts.export_graphs
 """
@@ -10,22 +10,23 @@ from agents.search import build_search_graph
 
 
 def main() -> None:
-    destination = Path(__file__).resolve().parents[1] / "docs" / "generated"
-    destination.mkdir(parents=True, exist_ok=True)
-    for name, title, graph in (
-        ("coordinator", "Coordinator graph", build_graph()),
-        ("search", "Search graph", build_search_graph()),
+    destination = Path(__file__).resolve().parents[1] / "DEVELOPMENT.md"
+    start_marker = "<!-- BEGIN GENERATED GRAPHS -->"
+    end_marker = "<!-- END GENERATED GRAPHS -->"
+    original = destination.read_text(encoding="utf-8")
+    start = original.index(start_marker) + len(start_marker)
+    end = original.index(end_marker, start)
+    diagrams = []
+    for title, graph in (
+        ("Coordinator graph", build_graph()),
+        ("Search graph", build_search_graph()),
     ):
-        content = (
-            f"# {title}\n\n"
-            "Generated from the compiled graph. Regenerate from the repository root:\n\n"
-            "```bash\nuv run python -m scripts.export_graphs\n```\n\n"
-            f"```mermaid\n{graph.get_graph().draw_mermaid()}\n```\n\n"
-            "[Back to documentation](../README.md).\n"
-        )
-        path = destination / f"{name}.md"
-        path.write_text(content, encoding="utf-8")
-        print(f"Generated {path.relative_to(destination.parents[1])}")
+        diagrams.append(f"### {title}\n\n```mermaid\n{graph.get_graph().draw_mermaid()}\n```")
+    destination.write_text(
+        original[:start] + "\n\n" + "\n\n".join(diagrams) + "\n\n" + original[end:],
+        encoding="utf-8",
+    )
+    print("Updated graph diagrams in DEVELOPMENT.md")
 
 
 if __name__ == "__main__":

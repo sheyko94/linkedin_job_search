@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_base_url: str = "http://localhost:3000"
+    prompt_label: str = "production"
     orchestrator_model: str = "claude-haiku-4-5-20251001"
     search_model: str = "claude-haiku-4-5-20251001"
     matcher_model: str = "claude-haiku-4-5-20251001"

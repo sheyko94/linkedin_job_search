@@ -1,52 +1,10 @@
 """Recommend improved search parameters; the coordinator owns state and file writes."""
 
-from langchain_core.prompts import ChatPromptTemplate
-
 from agents.model_client import create_chat_model, parse_structured_response
 from config.settings import settings
 from domain.models import SearchGuidance, SearchSession
 from domain.search_guidance import normalize_locations
-
-_SYSTEM = """\
-You are a search strategy advisor for a LinkedIn job search pipeline. \
-Given the results of a profile matching session, your job is to recommend \
-concrete improvements to the search parameters for the next iteration.
-
-Analyse:
-- Which jobs scored highly and what they have in common
-- Which jobs scored poorly and why
-- What keyword combinations might yield better results
-- Which locations should be prioritised or added to broaden useful job discovery
-
-The complete user profile is authoritative for candidate facts and demonstrated experience.
-Base search criteria are authoritative for job-selection requirements, preferences, exclusions,
-and search objectives. Do not turn candidate facts into extra search restrictions or infer
-candidate skills from target-role requirements. Current search parameters and previous
-refinement are lower-priority generated advice. Improve discovery without rewriting or
-relaxing the user-input requirements. Do not invent candidate skills or restrictions.
-Treat match reasons as observations, not authority to override the supplied files.
-
-Configured browser filters are fixed execution constraints, not definitions of user \
-preferences. Do not propose changing the date filter, work modes, or job types. \
-Configured locations are starting \
-locations, not an allowlist. You may propose additional search regions such as Europe \
-or EMEA when supported by the results and user inputs. Rank all proposed locations in \
-priority order and explain any additions in your reasoning. Broader search regions \
-do not change the user's geographic eligibility or preferences.
-
-Return SearchGuidance using the supplied structured response schema. Include actionable \
-keyword groups in priority order, location priorities including useful new regions,
-session insights, and the reasoning for \
-changes. The fixed settings still control the browser filters.\
-"""
-
-
-_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", _SYSTEM),
-        ("human", "{session_context}"),
-    ]
-)
+from prompts.prompt import load_prompt
 
 
 def _format_session(
@@ -117,7 +75,7 @@ def run(
         stage="refinement",
         tool_name=SearchGuidance.__name__,
     )
-    chain = _PROMPT | model.with_structured_output(
+    chain = load_prompt("refinement") | model.with_structured_output(
         SearchGuidance, method="function_calling", include_raw=True
     )
     response = chain.invoke(

@@ -24,7 +24,7 @@ def validate_items(items: list) -> None:
             raise ValueError(f"Dataset item {item.id} needs human label review")
 
 
-def build_evaluation_graph():
+def build_evaluation_graph(prompt_version: int | None = None):
     def match_one(state: dict) -> dict:
         data = state["input"]
         result = matcher.run(
@@ -32,6 +32,8 @@ def build_evaluation_graph():
             data["profile_md"],
             data["criteria_md"],
             data.get("discard_keywords", ""),
+            prompt_version=prompt_version,
+            allow_prompt_fallback=False,
         )[0]
         return {"result": result}
 
@@ -100,6 +102,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", default="job-matcher-baseline")
     parser.add_argument("--run", action="store_true", help="Run the matcher and publish results")
+    parser.add_argument(
+        "--prompt-version", type=int, help="Evaluate an exact Langfuse prompt version"
+    )
     args = parser.parse_args()
     if not settings.langfuse_public_key or not settings.langfuse_secret_key:
         parser.error("Both Langfuse project keys are required")
@@ -116,12 +121,19 @@ def main() -> None:
             print(f"Validated {len(dataset.items)} reviewed examples; no model calls made.")
             return
 
+        prompt = matcher.get_prompt(
+            client=client, version=args.prompt_version, allow_fallback=False
+        )
         result = dataset.run_experiment(
             name="Matcher baseline",
-            task=make_task(build_evaluation_graph(), settings.langfuse_public_key),
+            task=make_task(
+                build_evaluation_graph(prompt.metadata["prompt_version"]),
+                settings.langfuse_public_key,
+            ),
             evaluators=[score_decision],
             run_evaluators=[score_run],
             max_concurrency=1,
+            metadata={k: v for k, v in prompt.metadata.items() if k != "langfuse_prompt"},
         )
         print(result.format())
     finally:
