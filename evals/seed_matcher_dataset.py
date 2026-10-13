@@ -25,7 +25,7 @@ def seed_dataset(client, data: dict) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--file", type=Path, default=Path("evals/job-matcher-baseline.json"))
+    parser.add_argument("--file", type=Path, default=Path("evals/golden_dataset.json"))
     args = parser.parse_args()
     if not settings.langfuse_public_key or not settings.langfuse_secret_key:
         parser.error("Both Langfuse project keys are required")
