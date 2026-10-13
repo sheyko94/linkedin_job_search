@@ -64,6 +64,38 @@ def score_decision(*, output, expected_output, **kwargs) -> Evaluation:
     return Evaluation(name="decision_correct", value=int(correct), data_type="NUMERIC")
 
 
+def score_run(*, item_results, **kwargs) -> list[Evaluation]:
+    tp = fp = fn = tn = errors = 0
+    for result in item_results:
+        output = result.output
+        if (
+            not isinstance(output, dict)
+            or "error" in output
+            or type(output.get("worth_considering")) is not bool
+        ):
+            errors += 1
+            continue
+        expected = result.item.expected_output["worth_considering"]
+        predicted = output["worth_considering"]
+        tp += expected and predicted
+        fp += not expected and predicted
+        fn += expected and not predicted
+        tn += not expected and not predicted
+
+    total = len(item_results)
+    # Classification metrics exclude execution errors; undefined ratios score zero.
+    metrics = {
+        "decision_accuracy": (tp + tn) / total if total else 0,
+        "precision": tp / (tp + fp) if tp + fp else 0,
+        "recall": tp / (tp + fn) if tp + fn else 0,
+        "f1": 2 * tp / (2 * tp + fp + fn) if 2 * tp + fp + fn else 0,
+        "execution_error_rate": errors / total if total else 0,
+    }
+    return [
+        Evaluation(name=name, value=value, data_type="NUMERIC") for name, value in metrics.items()
+    ]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", default="job-matcher-baseline")
@@ -83,15 +115,6 @@ def main() -> None:
         if not args.run:
             print(f"Validated {len(dataset.items)} reviewed examples; no model calls made.")
             return
-
-        def score_run(*, item_results, **kwargs):
-            correct = sum(
-                score_decision(
-                    output=result.output, expected_output=result.item.expected_output
-                ).value
-                for result in item_results
-            )
-            return Evaluation(name="decision_accuracy", value=correct / len(dataset.items))
 
         result = dataset.run_experiment(
             name="Matcher baseline",
