@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="490" viewBox="0 0 1440 490">
+<defs>
+<marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 1 L8 5 L0 9" fill="none" stroke="#526779" stroke-width="1.8"/></marker>
+<marker id="loop" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 1 L8 5 L0 9" fill="none" stroke="#a76818" stroke-width="1.8"/></marker>
+</defs>
+<rect width="1440" height="490" rx="18" fill="#f8fafc"/>
+<g font-family="Arial, Helvetica, sans-serif">
+<text x="60" y="49" font-size="17" font-weight="700" fill="#526779" letter-spacing="2">THE JOB-SEARCH WORKFLOW</text>
+<text x="60" y="84" font-size="22" fill="#20384e">Follow the main process from left to right.</text>
+<rect x="60" y="140" width="220" height="100" rx="14" fill="#ffffff" stroke="#b9cbdc" stroke-width="1.5"/>
+<text x="78" y="126" font-size="14" fill="#637a8d" font-weight="700">01</text>
+<text x="170" y="180" text-anchor="middle" font-size="20" fill="#143d62" font-weight="700">Load inputs</text>
+<text x="170" y="211" text-anchor="middle" font-size="15" fill="#526779">Profile + criteria</text>
+<path d="M280 190 H320" fill="none" stroke="#526779" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="330" y="140" width="220" height="100" rx="14" fill="#ffffff" stroke="#b9cbdc" stroke-width="1.5"/>
+<text x="348" y="126" font-size="14" fill="#637a8d" font-weight="700">02</text>
+<text x="440" y="180" text-anchor="middle" font-size="20" fill="#143d62" font-weight="700">Search</text>
+<text x="440" y="211" text-anchor="middle" font-size="15" fill="#526779">Collect job details</text>
+<path d="M550 190 H590" fill="none" stroke="#526779" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="600" y="140" width="220" height="100" rx="14" fill="#ffffff" stroke="#b9cbdc" stroke-width="1.5"/>
+<text x="618" y="126" font-size="14" fill="#637a8d" font-weight="700">03</text>
+<text x="710" y="180" text-anchor="middle" font-size="20" fill="#143d62" font-weight="700">Evaluate matches</text>
+<text x="710" y="211" text-anchor="middle" font-size="15" fill="#526779">Fit + recommendations</text>
+<path d="M820 190 H860" fill="none" stroke="#526779" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="870" y="140" width="220" height="100" rx="14" fill="#ffffff" stroke="#b9cbdc" stroke-width="1.5"/>
+<text x="888" y="126" font-size="14" fill="#637a8d" font-weight="700">04</text>
+<text x="980" y="180" text-anchor="middle" font-size="20" fill="#143d62" font-weight="700">Analyze skill gaps</text>
+<text x="980" y="211" text-anchor="middle" font-size="15" fill="#526779">Recurring missing skills</text>
+<path d="M1090 190 H1130" fill="none" stroke="#526779" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1140" y="140" width="220" height="100" rx="14" fill="#ffffff" stroke="#b9cbdc" stroke-width="1.5"/>
+<text x="1158" y="126" font-size="14" fill="#637a8d" font-weight="700">05</text>
+<text x="1250" y="180" text-anchor="middle" font-size="20" fill="#143d62" font-weight="700">Write reports</text>
+<text x="1250" y="211" text-anchor="middle" font-size="15" fill="#526779">Results to review</text>
+
+<text x="980" y="105" text-anchor="middle" font-size="13" fill="#526779">After the final pass</text>
+<path d="M710 240 V320" fill="none" stroke="#a76818" stroke-width="2" marker-end="url(#loop)"/>
+<text x="735" y="282" font-size="15" fill="#8b5715">Another pass allowed?</text>
+<rect x="600" y="330" width="220" height="75" rx="14" fill="#fff5e5" stroke="#d7ac6e" stroke-width="1.5"/>
+<text x="710" y="361" text-anchor="middle" font-size="20" font-weight="700" fill="#805015">Refine guidance</text>
+<text x="710" y="386" text-anchor="middle" font-size="14" fill="#8b5715">Improve the next search</text>
+<path d="M600 367 H460 Q440 367 440 347 V250" fill="none" stroke="#a76818" stroke-width="2" marker-end="url(#loop)"/>
+<text x="60" y="455" font-size="16" fill="#526779">Optional refinement returns to the same search step. Your profile and criteria remain the brief.</text>
+</g></svg>

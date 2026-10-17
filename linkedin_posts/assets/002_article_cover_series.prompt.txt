@@ -1,0 +1,16 @@
+Create the episode TWO cover in the same series as reference image 1.
+INPUT ROLES: Image 1 is STYLE AND SERIES BRANDING REFERENCE ONLY (episode 1 cover). Image 2 is the EDIT TARGET and supplies the architecture content to preserve.
+
+Primary request: adapt image 2 into a consistent sibling of image 1, with the same title hierarchy, typography, navy/teal/slate palette, airy white background, understated soft depth, faint blue borders and delicate styling. Final canvas 1920x1080, 16:9 article cover, with comfortable safe margins. Keep the thin borders from image 2; do NOT return to heavy blue outlines.
+
+Add the exact series header in the UPPER LEFT, matching image 1:
+"Pragmatic AI" (large bold navy, AI in teal-blue)
+"Agentic Workflow #2" (smaller bold navy)
+"Orchestration" (smaller slate-gray with the short understated underline from image 1).
+These three lines must be clean and spelled exactly. Do NOT say #1 or Introduction.
+
+Place the LangGraph and LangChain marks/names from image 2 as a smaller, neat framework key in the UPPER RIGHT beside the series header, retaining exact captions "Orchestration" and "Models & tools". Do not let the framework names compete with the main Pragmatic AI title.
+
+Below the header, preserve the entire minimal blue/green architecture from image 2, resized/reflowed neatly to fit the lower portion with readable labels: outer light-blue "Workflow loop", horizontal Search agent -> Matcher -> Skills-gap -> Report, small "Search loop" connecting "LLM" and "Tools" inside Search agent, Matcher branching down to Refinement, Refinement arrow returning LEFT into the SAME original Search agent. All main arrows go left to right. Blue fine outlines and connectors represent LangGraph, pale sage tiles and green icons represent LangChain; Report tile stays neutral gray. No new components. Exact labels: "Workflow loop", "Search agent", "Search loop", "LLM", "Tools", "Matcher", "Skills-gap", "Report", "Refinement".
+
+At the very bottom, a barely visible pale blue landscape/wave accent may echo image 1's footer, but keep it minimal and do not let it overlap the diagram or introduce extra labels. Avoid new content, extra decorative icons, code, dense explanations, platform names, job-platform branding, watermarks. Preserve all architecture information and two loops while making this immediately recognizable as episode 2 in the same Pragmatic AI series.

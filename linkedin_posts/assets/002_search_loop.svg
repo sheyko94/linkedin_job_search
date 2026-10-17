@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="490" viewBox="0 0 1440 490">
+<defs>
+<marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 1 L8 5 L0 9" fill="none" stroke="#526779" stroke-width="1.8"/></marker>
+<marker id="loop" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 1 L8 5 L0 9" fill="none" stroke="#a76818" stroke-width="1.8"/></marker>
+</defs>
+<rect width="1440" height="490" rx="18" fill="#f8fafc"/>
+<g font-family="Arial, Helvetica, sans-serif">
+<text x="60" y="49" font-size="17" font-weight="700" fill="#526779" letter-spacing="2">INSIDE THE SEARCH AGENT</text>
+<text x="60" y="84" font-size="22" fill="#20384e">The model chooses actions. Code controls execution and stopping.</text>
+<rect x="60" y="180" width="220" height="100" rx="14" fill="#ffffff" stroke="#b9cbdc" stroke-width="1.5"/>
+<text x="170" y="220" text-anchor="middle" font-size="20" fill="#143d62" font-weight="700">Model</text>
+<text x="170" y="251" text-anchor="middle" font-size="14" fill="#526779">Choose the next action</text>
+<path d="M280 230 H320" fill="none" stroke="#526779" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="330" y="180" width="220" height="100" rx="14" fill="#ffffff" stroke="#b9cbdc" stroke-width="1.5"/>
+<text x="440" y="220" text-anchor="middle" font-size="20" fill="#143d62" font-weight="700">Execute tools</text>
+<text x="440" y="251" text-anchor="middle" font-size="14" fill="#526779">Collect jobs and details</text>
+<path d="M550 230 H590" fill="none" stroke="#526779" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="600" y="180" width="220" height="100" rx="14" fill="#fff5e5" stroke="#d7ac6e" stroke-width="1.5"/>
+<text x="710" y="220" text-anchor="middle" font-size="20" fill="#143d62" font-weight="700">Check limits</text>
+<text x="710" y="251" text-anchor="middle" font-size="14" fill="#526779">Job, listing + model-call limits</text>
+<path d="M820 230 H860" fill="none" stroke="#526779" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="870" y="180" width="220" height="100" rx="14" fill="#ffffff" stroke="#b9cbdc" stroke-width="1.5"/>
+<text x="980" y="220" text-anchor="middle" font-size="20" fill="#143d62" font-weight="700">Enrich details</text>
+<text x="980" y="251" text-anchor="middle" font-size="14" fill="#526779">Fetch missing descriptions</text>
+<path d="M1090 230 H1130" fill="none" stroke="#526779" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1140" y="180" width="220" height="100" rx="14" fill="#ffffff" stroke="#b9cbdc" stroke-width="1.5"/>
+<text x="1250" y="220" text-anchor="middle" font-size="20" fill="#143d62" font-weight="700">Return jobs</text>
+<text x="1250" y="251" text-anchor="middle" font-size="14" fill="#526779">Pass evidence to matching</text>
+
+<text x="305" y="167" text-anchor="middle" font-size="14" fill="#526779">Tool calls</text>
+<text x="845" y="167" text-anchor="middle" font-size="14" fill="#526779">Limit reached</text>
+<path d="M170 180 V145 Q170 130 185 130 H965 Q980 130 980 145 V170" fill="none" stroke="#526779" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="460" y="116" width="230" height="27" rx="8" fill="#f8fafc"/>
+<text x="575" y="135" text-anchor="middle" font-size="15" fill="#526779">No tool calls requested</text>
+<path d="M710 280 V355 Q710 375 690 375 H190 Q170 375 170 355 V290" fill="none" stroke="#a76818" stroke-width="2" marker-end="url(#loop)"/>
+<rect x="280" y="359" width="320" height="32" rx="8" fill="#f8fafc"/>
+<text x="440" y="380" text-anchor="middle" font-size="16" fill="#8b5715">Within limits: return tool results</text>
+<text x="60" y="455" font-size="16" fill="#526779">Each new model turn uses the tool results to decide what to do next.</text>
+</g></svg>
