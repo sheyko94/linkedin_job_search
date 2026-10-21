@@ -1,0 +1,14 @@
+Adapt the provided article cover into a new sibling cover for episode 3. Preserve the series branding and delicate visual design: white airy background, deep navy typography, teal accents, fine pale blue outlines, soft rounded cards, restrained shadows, and pale blue landscape hills with small conifer trees along the bottom. Use thin elegant borders, never thick. Output a 1920x1080 pixel 16:9 LinkedIn article header.
+
+Keep the same upper-left title hierarchy and generous margins, with exact text:
+Pragmatic AI
+Agentic Workflow #3
+Evaluation & Observability
+
+Replace the upper-right framework names with a single understated 'Langfuse' wordmark in navy with a small simple connected-node icon. Do not reproduce LangGraph or LangChain names.
+
+Replace the central architecture with just three spacious minimal cards arranged left to right:
+'Traces' — a simple nested timeline of blue and teal bars with a tiny amber warning dot.
+'Prompt versions' — two overlapping document cards and a small revision arrow.
+'Evaluations' — a simple checklist with green checks and one amber cross, and three tiny abstract score bars.
+Use a few fine light blue connectors between the cards. Keep the information extremely minimal and visually balanced, with plenty of whitespace. No numeric metrics, no code, no dense interface details, no extra labels or slogan. All wording legible and correctly spelled. Never include the word LinkedIn, any job-platform branding, URLs, personal information, or episode 2 content. This should feel like the same professional series, with a refined editorial design.
