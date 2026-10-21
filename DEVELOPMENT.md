@@ -340,14 +340,27 @@ docker compose logs -f langfuse-web langfuse-worker
 ```
 
 Wait for web startup and migrations to finish, then open <http://localhost:3000>.
-Sign up, create an organization, and create a project. There is no default account.
-Create project API keys in the UI and set them directly in the root `.env`:
+Compose uses [headless initialization](https://langfuse.com/self-hosting/administration/headless-initialization)
+to create the **Pragmatic AI** organization, **Job Workflow Local** project, and a
+local development account. Sign in directly; no registration is needed:
+
+- Email: `local@localhost.invalid`
+- Password: `LocalDemo-Only-2026!`
+
+The fixed initialization values are in `compose.yaml`, without additional `.env`
+variables. They are development credentials for the loopback-only stack. Existing
+resources and historical data remain; initialization does not reset existing passwords.
+Authentication remains enabled.
+
+To send application runs to this local project, set the following in the root `.env`:
 
 ```dotenv
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_PUBLIC_KEY=pk-lf-local-job-workflow
+LANGFUSE_SECRET_KEY=sk-lf-local-job-workflow-development-only
 LANGFUSE_BASE_URL=http://localhost:3000
 ```
+
+You can also create separate users, projects, and API keys through the UI.
 
 Run `uv sync`, then `uv run python main.py`. In your project's **Tracing** view, look for
 `linkedin-job-search`; its session ID matches the run's output folder and local logs.

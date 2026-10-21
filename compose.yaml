@@ -58,6 +58,16 @@ services:
     environment:
       <<: *langfuse-env
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?Set this variable in the root .env}
+      # Fixed demo credentials for this loopback-only local stack.
+      LANGFUSE_INIT_ORG_ID: pragmatic-ai-local
+      LANGFUSE_INIT_ORG_NAME: Pragmatic AI
+      LANGFUSE_INIT_PROJECT_ID: job-workflow-local
+      LANGFUSE_INIT_PROJECT_NAME: Job Workflow Local
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-local-job-workflow
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-local-job-workflow-development-only
+      LANGFUSE_INIT_USER_EMAIL: local@localhost.invalid
+      LANGFUSE_INIT_USER_NAME: Local Developer
+      LANGFUSE_INIT_USER_PASSWORD: LocalDemo-Only-2026!
       LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:${MINIO_PORT:-9090}
       LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://minio:9000
 
